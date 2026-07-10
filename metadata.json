@@ -1,0 +1,6 @@
+{
+  "name": "Blood AI",
+  "description": "An AI-first Blood Assistant to search blood, register donors, find blood banks, and get medical guidance through natural conversation.",
+  "requestFramePermissions": ["microphone", "geolocation"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
