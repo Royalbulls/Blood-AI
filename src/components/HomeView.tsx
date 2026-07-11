@@ -4,10 +4,11 @@ import {
   Send, Mic, MicOff, Volume2, VolumeX, Sparkles, RefreshCw, AlertCircle, AlertTriangle, 
   Heart, Navigation, HelpCircle, Phone, MessageSquare, Share2, Copy, 
   ThumbsUp, ThumbsDown, ShieldAlert, MapPin, Eye, Info, CheckCircle2, 
-  Map, Calendar, Users, FileText, Camera, Image, Paperclip, Check
+  Map, Calendar, Users, FileText, Camera, Image, Paperclip, Check, Plus
 } from "lucide-react";
 import { ChatMessage, Donor, EmergencyRequest, BloodBank } from "../types";
 import { TRANSLATIONS } from "../translations";
+import DailyHealthWidget from "./DailyHealthWidget";
 
 interface HomeViewProps {
   messages: ChatMessage[];
@@ -44,11 +45,12 @@ export default function HomeView({
   onToggleFavorite,
   onViewMapItem,
   onShowToast,
-  favoriteServices = ["Blood Search", "Donor Search", "Emergency Requests", "Live Map", "Live Peer Chat"],
+  favoriteServices = ["Blood Search", "Donor Search", "Emergency Requests", "Live Map", "Live Peer Chat", "Latest Jankari"],
   onNavigate,
   onUpdateFavoriteServices
 }: HomeViewProps) {
   const [inputText, setInputText] = useState("");
+  const [activeSubTab, setActiveSubTab] = useState<"chat" | "health">("chat");
   const [isListening, setIsListening] = useState(false);
   const [currentlySpeaking, setCurrentlySpeaking] = useState<string | null>(null);
   const [speechSupported, setSpeechSupported] = useState(false);
@@ -71,6 +73,7 @@ export default function HomeView({
 
   // Simulated Camera / Attachment State
   const [simulatedAttachment, setSimulatedAttachment] = useState<string | null>(null);
+  const [isAttachmentMenuOpen, setIsAttachmentMenuOpen] = useState(false);
 
   // Medical Matrix selected blood group for compatibility
   const [matrixBloodGroup, setMatrixBloodGroup] = useState<string>("O-");
@@ -273,7 +276,7 @@ export default function HomeView({
   };
 
   return (
-    <div id="chat_view_root" className="flex flex-col h-[calc(100vh-140px)] md:h-[calc(100vh-160px)] w-full max-w-4xl mx-auto rounded-3xl overflow-hidden border border-slate-800/80 shadow-2xl relative bg-slate-950/40 backdrop-blur-md">
+    <div id="chat_view_root" className="flex flex-col h-[calc(100vh-62px)] md:h-[calc(100vh-65px)] w-full max-w-none rounded-none overflow-hidden relative bg-slate-950/10">
       
       {/* Dialing Phone Simulator Overlay */}
       {dialingContact && (
@@ -309,164 +312,119 @@ export default function HomeView({
         </div>
       )}
 
-      {/* Main chat messaging section */}
-      <div className="flex-1 overflow-y-auto px-4 md:px-6 py-6 space-y-6 scrollbar-thin scrollbar-thumb-slate-900">
-        {messages.length === 0 ? (
-          <div className="flex flex-col items-center justify-center min-h-[60%] text-center px-4 max-w-xl mx-auto">
-            <motion.div
-              initial={{ scale: 0.95, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              transition={{ duration: 0.4 }}
-              className="space-y-4 animate-fade-in"
-            >
-              <div className="w-16 h-16 rounded-2xl bg-gradient-to-tr from-red-600/20 to-red-600/5 text-red-500 flex items-center justify-center text-4xl border border-red-500/20 mb-2 mx-auto animate-pulse">
-                🩸
-              </div>
-              <h2 className="text-2xl font-black tracking-tight text-white uppercase font-sans">
-                Blood AI Chat
-              </h2>
-              <p className="text-xs text-slate-400 font-medium leading-relaxed">
-                यह आपातकालीन रक्त सहायक प्रणाली है। आप सामान्य भाषा में लिखकर या बोलकर रक्तदाता खोज सकते हैं, स्वयं पंजीकरण कर सकते हैं या आपातकालीन बोर्ड पर रोगी का विवरण दर्ज कर सकते हैं।
-              </p>
-            </motion.div>
+      {/* Sub-navigation Tab Bar within AI Section */}
+      <div className="px-4 md:px-6 pt-3.5 pb-2 border-b border-slate-800/60 bg-slate-950/90 backdrop-blur flex items-center justify-between z-10">
+        <div className="flex items-center gap-1 bg-slate-900 p-1 rounded-xl border border-slate-800/80">
+          <button
+            type="button"
+            onClick={() => setActiveSubTab("chat")}
+            className={`px-3 py-1.5 rounded-lg text-xs font-black uppercase tracking-wider transition-all flex items-center gap-1.5 cursor-pointer ${
+              activeSubTab === "chat"
+                ? "bg-red-600 text-white shadow"
+                : "text-slate-400 hover:text-slate-200"
+            }`}
+          >
+            💬 Chat Assistant
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveSubTab("health")}
+            className={`px-3 py-1.5 rounded-lg text-xs font-black uppercase tracking-wider transition-all flex items-center gap-1.5 cursor-pointer ${
+              activeSubTab === "health"
+                ? "bg-red-600 text-white shadow"
+                : "text-slate-400 hover:text-slate-200"
+            }`}
+          >
+            🥗 Daily Nutrition (AI)
+          </button>
+        </div>
+        <div className="hidden sm:flex items-center gap-1.5 text-[9px] text-slate-500 font-mono uppercase font-extrabold tracking-widest">
+          <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+          <span>Blood Rescue Core</span>
+        </div>
+      </div>
 
-            {/* Dynamic Customizable Pinned Favorite Services */}
-            <div className="w-full mt-8 border-t border-slate-900 pt-6 space-y-3.5">
-              <div className="flex items-center justify-between">
-                <span className="text-[10px] text-slate-400 font-black uppercase tracking-widest flex items-center gap-1.5">
-                  <Sparkles className="w-3.5 h-3.5 text-red-500 animate-pulse" />
-                  <span>पसंदीदा सेवाएँ (Pinned Services)</span>
-                </span>
-                <button
-                  type="button"
-                  onClick={() => setIsCustomizingServices(!isCustomizingServices)}
-                  className="text-[10px] text-red-500 hover:underline font-bold transition-all active:scale-95"
+      {activeSubTab === "health" ? (
+        <div className="flex-1 overflow-y-auto px-4 md:px-6 py-6 scrollbar-thin scrollbar-thumb-slate-900">
+          <DailyHealthWidget 
+            language={language}
+            isDarkMode={isDarkMode}
+            onShowToast={onShowToast}
+            registeredName={localStorage.getItem("blood_ai_profile_name") || ""}
+          />
+        </div>
+      ) : (
+        <>
+          {/* Main chat messaging section */}
+          <div className="flex-1 overflow-y-auto px-4 md:px-6 py-6 space-y-6 scrollbar-thin scrollbar-thumb-slate-900">
+            {messages.length === 0 ? (
+              <div className="flex flex-col items-center justify-center min-h-[75%] text-center px-4 max-w-2xl mx-auto py-8">
+                <motion.div
+                  initial={{ scale: 0.95, opacity: 0 }}
+                  animate={{ scale: 1, opacity: 1 }}
+                  transition={{ duration: 0.4 }}
+                  className="space-y-4"
                 >
-                  {isCustomizingServices ? "Done (पूरा हुआ)" : "Customize (व्यवस्थित करें)"}
-                </button>
-              </div>
-
-              {isCustomizingServices ? (
-                <div className="grid grid-cols-2 gap-2 bg-slate-950/60 p-3 rounded-xl border border-slate-850">
-                  {[
-                    "Blood Search",
-                    "Donor Search",
-                    "Emergency Requests",
-                    "Live Map",
-                    "Live Peer Chat",
-                    "Support / Donation"
-                  ].map(service => {
-                    const isSelected = favoriteServices.includes(service);
-                    const labelHindi = 
-                      service === "Blood Search" ? "रक्त खोज (Blood Search)" :
-                      service === "Donor Search" ? "दाता खोज (Donor Search)" :
-                      service === "Emergency Requests" ? "आपातकालीन अनुरोध" :
-                      service === "Live Map" ? "लाइव मानचित्र (Live Map)" :
-                      service === "Live Peer Chat" ? "लाइव चैट (Live Peer Chat)" : "स्वैच्छिक दान (Support)";
-                    return (
-                      <button
-                        key={service}
-                        type="button"
-                        onClick={() => {
-                          if (onUpdateFavoriteServices) {
-                            const updated = isSelected 
-                              ? favoriteServices.filter(s => s !== service)
-                              : [...favoriteServices, service];
-                            onUpdateFavoriteServices(updated);
-                          } else {
-                            onShowToast("Cannot update favorite services.");
-                          }
-                        }}
-                        className={`p-2.5 text-left rounded-xl border text-[11px] font-bold transition-all active:scale-95 cursor-pointer flex items-center justify-between ${
-                          isSelected
-                            ? "bg-red-600/10 border-red-500 text-red-500"
-                            : "bg-slate-900 border-slate-800 text-slate-400 hover:border-slate-700"
-                        }`}
-                      >
-                        <span className="truncate">{labelHindi}</span>
-                        {isSelected && <Check className="w-3.5 h-3.5 text-red-500 shrink-0 ml-1" />}
-                      </button>
-                    );
-                  })}
-                </div>
-              ) : (
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
-                  {favoriteServices.map((service) => {
-                    let icon = "🩸";
-                    let label = service;
-                    let desc = "Quick action";
-                    let action = () => {};
-
-                    if (service === "Blood Search") {
-                      icon = "🔍";
-                      label = "रक्त खोज";
-                      desc = "O+ / AB- blood donors";
-                      action = () => onSendMessage("O+ रक्तदाता की खोज करें (Search O+ blood donor)");
-                    } else if (service === "Donor Search") {
-                      icon = "👥";
-                      label = "दाता खोज";
-                      desc = "Active volunteer list";
-                      action = () => onSendMessage("सभी पंजीकृत रक्तदाताओं की सूची दिखाएं (Show list of all registered blood donors)");
-                    } else if (service === "Emergency Requests") {
-                      icon = "🚨";
-                      label = "आपातकालीन बोर्ड";
-                      desc = "Active emergency requests";
-                      action = () => onNavigate && onNavigate("emergency");
-                    } else if (service === "Live Map") {
-                      icon = "🗺️";
-                      label = "लाइव मानचित्र";
-                      desc = "Near real-time tracking";
-                      action = () => onNavigate && onNavigate("map");
-                    } else if (service === "Live Peer Chat") {
-                      icon = "💬";
-                      label = "लाइव चैट (Group Room)";
-                      desc = "Connect with community";
-                      action = () => onNavigate && onNavigate("chat");
-                    } else if (service === "Support / Donation") {
-                      icon = "💝";
-                      label = "स्वैच्छिक दान (Support)";
-                      desc = "Information & support";
-                      action = () => onSendMessage("रक्तदान और स्वैच्छिक दान के बारे में जानकारी (Information about blood donation & support)");
-                    }
-
-                    return (
-                      <button
-                        key={service}
-                        type="button"
-                        onClick={action}
-                        className="p-3 text-left rounded-xl bg-slate-900/40 hover:bg-slate-900 border border-slate-850 hover:border-red-500/25 text-slate-300 transition-all active:scale-95 cursor-pointer flex flex-col justify-between min-h-[75px]"
-                      >
-                        <span className="text-lg">{icon}</span>
-                        <div className="mt-2 text-left">
-                          <p className="text-[11px] font-extrabold text-slate-200 line-clamp-1">{label}</p>
-                          <p className="text-[9px] text-slate-500 font-medium font-sans mt-0.5 line-clamp-1">{desc}</p>
-                        </div>
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-
-            {/* Quick Suggestions Cards */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 w-full mt-8">
-              {suggestions.map((s, idx) => (
-                <button
-                  key={idx}
-                  onClick={() => onSendMessage(s.text)}
-                  className="p-3 text-left rounded-xl bg-slate-900/60 border border-slate-800 hover:border-red-500/30 text-slate-300 transition-all active:scale-98 cursor-pointer group hover:bg-slate-900"
-                >
-                  <div className="flex items-center gap-1.5 mb-1">
-                    <span className="text-xs">{s.icon}</span>
-                    <span className="text-[10px] text-red-500 font-black tracking-wider uppercase font-sans">{s.label}</span>
+                  {/* Glowing Icon */}
+                  <div className="relative w-16 h-16 rounded-2xl bg-gradient-to-tr from-red-600/30 to-red-500/10 text-red-500 flex items-center justify-center text-4xl border border-red-500/20 mb-3 mx-auto shadow-[0_0_20px_rgba(239,68,68,0.15)] animate-pulse">
+                    🩸
                   </div>
-                  <p className="text-[11px] text-slate-400 group-hover:text-slate-100 font-mono italic truncate">"{s.text}"</p>
-                </button>
-              ))}
-            </div>
-          </div>
-        ) : (
-          <div className="space-y-6">
+                  
+                  {/* Elegant ChatGPT/Gemini-style Heading */}
+                  <h2 className="text-3xl font-extrabold tracking-tight text-white uppercase font-sans">
+                    {language === "hi" ? "नमस्ते! मैं Blood AI हूँ।" : language === "hinglish" ? "Hello! Main Blood AI hoon." : "Hello! I am Blood AI."}
+                  </h2>
+                  <p className="text-sm text-slate-400 font-medium leading-relaxed max-w-lg mx-auto">
+                    {language === "hi" 
+                      ? "मैं आपका आपातकालीन रक्त सहायक (AI Blood Assistant) हूँ। मैं रक्तदाता खोजने, डोनर पंजीकरण करने और रक्त अनुकूलता संबंधी सभी जानकारियाँ प्रदान कर सकता हूँ। आपकी आज कैसे सहायता करूँ?" 
+                      : language === "hinglish" 
+                        ? "Main aapka emergency blood assistant hoon. Blood donors search karne, register karne ya compatibility janne ke liye niche diye chips click karein ya type karein."
+                        : "I am your emergency blood assistant. Search for active blood donors, register for donation, or get quick medical compatibility guidelines below."}
+                  </p>
+                </motion.div>
+
+                {/* 2x2 Grid of Beautiful Gemini-style Suggestion Cards */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 w-full mt-10">
+                  {[
+                    {
+                      title: language === "hi" ? "🚨 रक्तदाता खोजें" : "🚨 Search Donor",
+                      desc: language === "hi" ? "O+ रक्तदाता की तत्काल खोज करें" : "Quickly search for O+ blood donors",
+                      prompt: language === "hi" ? "O+ रक्तदाता की खोज करें (Search O+ blood donor)" : "Search O+ blood donor in Delhi"
+                    },
+                    {
+                      title: language === "hi" ? "🙋‍♂️ डोनर पंजीकरण" : "🙋‍♂️ Donor Registration",
+                      desc: language === "hi" ? "रक्तदान करने के लिए खुद को रजिस्टर करें" : "Register yourself to save lives",
+                      prompt: language === "hi" ? "मैं रक्तदान करना चाहता हूँ, मुझे रजिस्टर करो (Register me as blood donor)" : "I want to register as a voluntary blood donor"
+                    },
+                    {
+                      title: language === "hi" ? "📊 रक्त अनुकूलता" : "📊 Compatibility Guide",
+                      desc: language === "hi" ? "कौन किसे रक्त दान कर सकता है?" : "Learn who can donate to whom",
+                      prompt: language === "hi" ? "क्या O- Universal Donor है? अनुकूलता बताएं (Explain blood compatibility)" : "Explain blood compatibility chart"
+                    },
+                    {
+                      title: language === "hi" ? "🏥 ब्लड बैंक खोजें" : "🏥 Find Blood Banks",
+                      desc: language === "hi" ? "आसपास के सक्रिय सरकारी ब्लड बैंक देखें" : "Locate active verified blood banks",
+                      prompt: language === "hi" ? "आसपास के सक्रिय ब्लड बैंक दिखाएं (Show active blood banks)" : "Show active blood banks near Delhi"
+                    }
+                  ].map((item, idx) => (
+                    <motion.button
+                      key={idx}
+                      whileHover={{ scale: 1.02, translateY: -2 }}
+                      whileTap={{ scale: 0.98 }}
+                      onClick={() => onSendMessage(item.prompt)}
+                      className="p-4 text-left rounded-2xl bg-slate-900/50 border border-slate-800/80 hover:border-red-500/30 text-slate-300 transition-all cursor-pointer group hover:bg-slate-900/80 hover:shadow-[0_4px_20px_rgba(239,68,68,0.05)] flex flex-col justify-between"
+                    >
+                      <div className="flex items-center justify-between w-full mb-1">
+                        <span className="text-xs font-black tracking-wider text-white font-sans">{item.title}</span>
+                        <span className="text-[10px] text-red-500 font-extrabold uppercase bg-red-500/10 border border-red-500/20 px-2 py-0.5 rounded font-mono">AI Action</span>
+                      </div>
+                      <p className="text-xs text-slate-400 group-hover:text-slate-300 mt-1">{item.desc}</p>
+                    </motion.button>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-6">
             {messages.map((msg) => {
               const isModel = msg.role === "model";
               const commentList = cardComments[msg.id] || [];
@@ -1009,83 +967,132 @@ export default function HomeView({
           </div>
         )}
 
-        <div className="max-w-4xl mx-auto flex items-center space-x-2 rounded-2xl px-4 py-2.5 border border-slate-800/80 bg-slate-900 focus-within:border-red-500/40 transition-all shadow-xl">
+        <div className="max-w-4xl mx-auto flex items-start space-x-2.5 rounded-2xl px-4 py-2.5 border border-slate-800/80 bg-slate-900 focus-within:border-red-500/40 transition-all shadow-xl">
           
-          {/* Action buttons list in bottom input box */}
-          <div className="flex items-center gap-1 md:gap-1.5">
-            {/* 1. Mic Voice typing */}
+          {/* Action button: Toggle Plus Options Menu */}
+          <div className="relative self-center shrink-0">
             <button
-              onClick={toggleListening}
-              className={`p-2 rounded-lg transition-all cursor-pointer ${
-                isListening
-                  ? "bg-red-600 text-white animate-pulse"
-                  : "text-slate-400 hover:text-white hover:bg-slate-800"
+              onClick={() => setIsAttachmentMenuOpen(!isAttachmentMenuOpen)}
+              className={`p-2 rounded-lg transition-all cursor-pointer flex items-center justify-center border ${
+                isAttachmentMenuOpen 
+                  ? "bg-red-600/10 border-red-500/30 text-red-500 rotate-45" 
+                  : "bg-slate-950/40 border-slate-800 text-slate-400 hover:text-white hover:bg-slate-800"
               }`}
-              title="Voice Input (बोलकर टाइप करें)"
+              title={language === "hi" ? "संलग्नक विकल्प (Attachments)" : "Add attachments or voice"}
             >
-              <Mic className="w-4 h-4 md:w-4.5 md:h-4.5" />
+              <Plus className="w-4.5 h-4.5" />
             </button>
+            
+            {/* Attachment dropdown popup menu */}
+            {isAttachmentMenuOpen && (
+              <>
+                <div 
+                  className="fixed inset-0 z-40" 
+                  onClick={() => setIsAttachmentMenuOpen(false)}
+                />
+                <div className="absolute bottom-11 left-0 w-52 bg-slate-900 border border-slate-800 rounded-xl shadow-2xl z-50 p-2 space-y-1.5 animate-in fade-in slide-in-from-bottom-2 duration-150">
+                  {/* 1. Mic Voice typing */}
+                  <button
+                    onClick={() => {
+                      toggleListening();
+                      setIsAttachmentMenuOpen(false);
+                    }}
+                    className={`w-full flex items-center gap-2.5 px-3 py-2 text-left text-xs font-bold rounded-lg transition-all cursor-pointer ${
+                      isListening 
+                        ? "bg-red-600/10 text-red-500 font-extrabold animate-pulse" 
+                        : "text-slate-300 hover:text-white hover:bg-slate-800"
+                    }`}
+                  >
+                    <Mic className="w-4 h-4 text-red-500 shrink-0" />
+                    <span>{language === "hi" ? "बोलकर टाइप करें (Voice)" : "Voice Dictation"}</span>
+                  </button>
 
-            {/* 2. Camera Simulation */}
-            <button
-              onClick={() => handleSimulateAttachment("camera")}
-              className="p-2 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-all cursor-pointer"
-              title="Camera Scan prescription (कैमरा स्कैन)"
-            >
-              <Camera className="w-4 h-4 md:w-4.5 md:h-4.5" />
-            </button>
+                  {/* 2. Camera Simulation */}
+                  <button
+                    onClick={() => {
+                      handleSimulateAttachment("camera");
+                      setIsAttachmentMenuOpen(false);
+                    }}
+                    className="w-full flex items-center gap-2.5 px-3 py-2 text-left text-xs font-bold text-slate-300 hover:text-white hover:bg-slate-800 rounded-lg transition-all cursor-pointer"
+                  >
+                    <Camera className="w-4 h-4 text-red-500 shrink-0" />
+                    <span>{language === "hi" ? "कैमरा स्कैन (Prescription)" : "Camera Scan"}</span>
+                  </button>
 
-            {/* 3. Gallery Simulation */}
-            <button
-              onClick={() => handleSimulateAttachment("gallery")}
-              className="p-2 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-all cursor-pointer"
-              title="Upload prescription/report from Gallery"
-            >
-              <Image className="w-4 h-4 md:w-4.5 md:h-4.5" />
-            </button>
+                  {/* 3. Gallery Simulation */}
+                  <button
+                    onClick={() => {
+                      handleSimulateAttachment("gallery");
+                      setIsAttachmentMenuOpen(false);
+                    }}
+                    className="w-full flex items-center gap-2.5 px-3 py-2 text-left text-xs font-bold text-slate-300 hover:text-white hover:bg-slate-800 rounded-lg transition-all cursor-pointer"
+                  >
+                    <Image className="w-4 h-4 text-red-500 shrink-0" />
+                    <span>{language === "hi" ? "गैलरी से रिपोर्ट" : "Upload Report"}</span>
+                  </button>
 
-            {/* 4. Live GPS coordinates injection */}
-            <button
-              onClick={handleSimulateLocation}
-              className="p-2 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-all cursor-pointer"
-              title="Share GPS Location (स्थान विवरण)"
-            >
-              <MapPin className="w-4 h-4 md:w-4.5 md:h-4.5" />
-            </button>
+                  {/* 4. Live GPS coordinates injection */}
+                  <button
+                    onClick={() => {
+                      handleSimulateLocation();
+                      setIsAttachmentMenuOpen(false);
+                    }}
+                    className="w-full flex items-center gap-2.5 px-3 py-2 text-left text-xs font-bold text-slate-300 hover:text-white hover:bg-slate-800 rounded-lg transition-all cursor-pointer"
+                  >
+                    <MapPin className="w-4 h-4 text-red-500 shrink-0" />
+                    <span>{language === "hi" ? "जीपीएस स्थान जोड़ें" : "Share GPS Location"}</span>
+                  </button>
 
-            {/* 5. General Document attachments */}
-            <button
-              onClick={() => handleSimulateAttachment("file")}
-              className="p-2 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-all cursor-pointer"
-              title="Attach Medical reports (संलग्नक)"
-            >
-              <Paperclip className="w-4 h-4 md:w-4.5 md:h-4.5" />
-            </button>
+                  {/* 5. General Document attachments */}
+                  <button
+                    onClick={() => {
+                      handleSimulateAttachment("file");
+                      setIsAttachmentMenuOpen(false);
+                    }}
+                    className="w-full flex items-center gap-2.5 px-3 py-2 text-left text-xs font-bold text-slate-300 hover:text-white hover:bg-slate-800 rounded-lg transition-all cursor-pointer"
+                  >
+                    <Paperclip className="w-4 h-4 text-red-500 shrink-0" />
+                    <span>{language === "hi" ? "फ़ाइल / रिपोर्ट संलग्न करें" : "Attach File"}</span>
+                  </button>
+                </div>
+              </>
+            )}
           </div>
 
-          <div className="h-6 w-[1px] bg-slate-800"></div>
+          <div className="h-6 w-[1px] bg-slate-800 self-center"></div>
 
-          {/* Core message text box */}
-          <input
-            type="text"
+          {/* Core message text area - tall and spacious */}
+          <textarea
             value={inputText}
             onChange={(e) => setInputText(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && handleSend()}
-            placeholder={language === "hi" ? "Blood AI से कुछ भी पूछें…" : "Ask Blood AI anything..."}
-            className="flex-1 bg-transparent border-0 outline-none focus:ring-0 text-xs sm:text-sm font-medium py-2 text-white placeholder-slate-500"
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                handleSend();
+              }
+            }}
+            rows={2}
+            placeholder={
+              language === "hi" 
+                ? "Blood AI से कुछ भी पूछें (जैसे: आपातकालीन रक्तदाता, पंजीकरण विवरण या ब्लड बैंक की जानकारी)..." 
+                : language === "hinglish"
+                ? "Blood AI se kuch bhi poochein (jaise: Emergency donor, registration, etc.)..."
+                : "Ask Blood AI anything (e.g., emergency blood donors, compatibility)..."
+            }
+            className="flex-1 bg-transparent border-0 outline-none focus:ring-0 text-sm font-medium py-1 text-white placeholder-slate-500 resize-none max-h-36 scrollbar-thin scrollbar-thumb-slate-800"
             disabled={isLoading}
           />
 
           <button
             onClick={handleSend}
             disabled={!inputText.trim() || isLoading}
-            className={`p-2 rounded-xl transition-all cursor-pointer ${
+            className={`p-2.5 rounded-xl transition-all cursor-pointer self-end ${
               inputText.trim() && !isLoading
-                ? "bg-red-600 text-white hover:bg-red-500 shadow-lg shadow-red-900/20"
+                ? "bg-red-600 text-white hover:bg-red-500 shadow-lg shadow-red-900/20 active:scale-95"
                 : "bg-slate-800 text-slate-500 cursor-not-allowed"
             }`}
           >
-            <Send className="w-3.5 h-3.5" />
+            <Send className="w-4 h-4" />
           </button>
         </div>
 
@@ -1095,6 +1102,8 @@ export default function HomeView({
             : "Emergency donor search, registration, and medical guidelines are AI-powered."}
         </p>
       </div>
+      </>
+    )}
 
     </div>
   );

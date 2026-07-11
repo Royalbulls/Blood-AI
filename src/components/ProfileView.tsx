@@ -19,6 +19,7 @@ import {
   Save, 
   Instagram, 
   Twitter, 
+  Youtube,
   Facebook, 
   Linkedin, 
   User, 
@@ -30,7 +31,12 @@ import {
   Activity,
   Heart,
   Info,
-  AlertCircle
+  AlertCircle,
+  Sparkles,
+  Star,
+  Award,
+  FileText,
+  ExternalLink
 } from "lucide-react";
 
 interface ProfileViewProps {
@@ -39,6 +45,7 @@ interface ProfileViewProps {
   banksCount: number;
   onResetDb: () => void;
   onShowToast?: (msg: string) => void;
+  onSignOut?: () => void;
 }
 
 export default function ProfileView({
@@ -46,14 +53,11 @@ export default function ProfileView({
   requestsCount,
   banksCount,
   onResetDb,
-  onShowToast
+  onShowToast,
+  onSignOut
 }: ProfileViewProps) {
-  // Tabs: 'profile' (Card Builder) | 'admin' (Diagnostics) | 'donate' (Voluntary Donation)
-  const [activeTab, setActiveTab] = useState<"profile" | "admin" | "donate">("profile");
-
-  // Support / Donation States
-  const [donationStep, setDonationStep] = useState<"input" | "processing" | "awaiting" | "success">("input");
-  const [customAmount, setCustomAmount] = useState<string>("500");
+  // Tabs: 'profile' (Card Builder) | 'admin' (Diagnostics)
+  const [activeTab, setActiveTab] = useState<"profile" | "admin">("profile");
 
   // Profile States
   const [profileName, setProfileName] = useState("Siddharth Sharma");
@@ -191,33 +195,6 @@ export default function ProfileView({
     setSystemLogs(prev => [`[${new Date().toLocaleTimeString()}] ${msg}`, ...prev.slice(0, 9)]);
   };
 
-  // Support / Donation Handlers
-  const handleInitiateDonation = () => {
-    setDonationStep("processing");
-    addLog(`INF - Donation of ₹${customAmount} initiated via secure gateway.`);
-    setTimeout(() => {
-      setDonationStep("awaiting");
-    }, 1500);
-  };
-
-  const handleApproveDonation = () => {
-    setDonationStep("success");
-    addLog(`SUCCESS - Voluntary donation of ₹${customAmount} received. Thank you!`);
-    if (onShowToast) {
-      onShowToast(`₹${customAmount} दान प्राप्त हुआ! धन्यवाद ❤️`);
-    }
-  };
-
-  const handleCopyUpiId = () => {
-    navigator.clipboard.writeText("donate@bloodai");
-    if (onShowToast) {
-      onShowToast("Donation UPI ID copied to clipboard!");
-    } else {
-      alert("📋 UPI ID कॉपी कर ली गई है: donate@bloodai");
-    }
-    addLog("INF - Donation UPI ID copied to clipboard.");
-  };
-
   // Persistent Save
   const handleSaveProfile = () => {
     localStorage.setItem("blood_ai_profile_name", profileName);
@@ -286,6 +263,16 @@ export default function ProfileView({
     const whatsappUrl = `https://api.whatsapp.com/send?text=${encodeURIComponent(message)}`;
     window.open(whatsappUrl, "_blank");
     addLog("INF - Profile card shared on WhatsApp.");
+  };
+
+  // Copy Profile / Referral Share Link to Clipboard
+  const copyShareLink = () => {
+    const shareUrl = `${window.location.origin}?donor=${encodeURIComponent(profileName)}`;
+    navigator.clipboard.writeText(shareUrl);
+    if (onShowToast) {
+      onShowToast("🔗 रेफ़रल लिंक क्लिपबोर्ड पर कॉपी हो गया! (Referral link copied!)");
+    }
+    addLog(`SUCCESS - Referral share link copied: ${shareUrl}`);
   };
 
   // Canvas Card Renderer and Downloader
@@ -693,13 +680,13 @@ export default function ProfileView({
         </div>
 
         {/* View Switcher Tabs */}
-        <div className="flex bg-slate-950 p-1 rounded-xl border border-slate-850 self-start">
+        <div className="flex flex-wrap bg-slate-950 p-1 rounded-xl border border-slate-850 self-start gap-1">
           <button
             onClick={() => {
               setActiveTab("profile");
               if (onShowToast) onShowToast("डिजिटल कार्ड बिल्डर सक्रिय");
             }}
-            className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+            className={`px-3 sm:px-4 py-1.5 rounded-lg text-[11px] sm:text-xs font-bold transition-all cursor-pointer ${
               activeTab === "profile" 
                 ? "bg-red-600/10 text-red-400 border border-red-500/15" 
                 : "text-slate-400 hover:text-white"
@@ -712,28 +699,13 @@ export default function ProfileView({
               setActiveTab("admin");
               if (onShowToast) onShowToast("स्वास्थ्य निदान HUD सक्रिय");
             }}
-            className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+            className={`px-3 sm:px-4 py-1.5 rounded-lg text-[11px] sm:text-xs font-bold transition-all cursor-pointer ${
               activeTab === "admin" 
                 ? "bg-red-600/10 text-red-400 border border-red-500/15" 
                 : "text-slate-400 hover:text-white"
             }`}
           >
             Diagnostics HUD
-          </button>
-          <button
-            onClick={() => {
-              setActiveTab("donate");
-              setDonationStep("input");
-              if (onShowToast) onShowToast("स्वैच्छिक दान और समर्थन सेक्शन सक्रिय ❤️");
-            }}
-            className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1 ${
-              activeTab === "donate" 
-                ? "bg-red-600/20 text-red-400 border border-red-500/35" 
-                : "text-red-500/80 hover:text-red-400"
-            }`}
-          >
-            <Heart className="w-3.5 h-3.5 fill-red-500/20 animate-pulse text-red-500" />
-            <span>स्वैच्छिक दान</span>
           </button>
         </div>
       </div>
@@ -918,20 +890,30 @@ export default function ProfileView({
             </div>
 
             {/* Quick Card Actions */}
-            <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-3">
+              <div className="grid grid-cols-2 gap-3">
+                <button
+                  onClick={generateAndDownloadCard}
+                  className="flex items-center justify-center gap-1.5 bg-red-600 hover:bg-red-500 text-white font-semibold text-xs py-2.5 rounded-xl transition-all shadow-md active:scale-95 cursor-pointer"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span>Download Card (PNG)</span>
+                </button>
+                <button
+                  onClick={shareOnWhatsApp}
+                  className="flex items-center justify-center gap-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs py-2.5 rounded-xl transition-all shadow-md active:scale-95 cursor-pointer"
+                >
+                  <Share2 className="w-3.5 h-3.5" />
+                  <span>WhatsApp Share</span>
+                </button>
+              </div>
+
               <button
-                onClick={generateAndDownloadCard}
-                className="flex items-center justify-center gap-1.5 bg-red-600 hover:bg-red-500 text-white font-semibold text-xs py-2.5 rounded-xl transition-all shadow-md active:scale-95 cursor-pointer"
+                onClick={copyShareLink}
+                className="w-full flex items-center justify-center gap-2 bg-slate-900 hover:bg-slate-850 border border-slate-800 text-slate-200 hover:text-white font-bold text-xs py-2.5 rounded-xl transition-all shadow-md active:scale-95 cursor-pointer"
               >
-                <Download className="w-3.5 h-3.5" />
-                <span>Download Card (PNG)</span>
-              </button>
-              <button
-                onClick={shareOnWhatsApp}
-                className="flex items-center justify-center gap-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs py-2.5 rounded-xl transition-all shadow-md active:scale-95 cursor-pointer"
-              >
-                <Share2 className="w-3.5 h-3.5" />
-                <span>WhatsApp Share</span>
+                <Copy className="w-4 h-4 text-red-500" />
+                <span>कार्ड और रेफ़रल लिंक कॉपी करें (Copy Share Link)</span>
               </button>
             </div>
           </div>
@@ -943,6 +925,15 @@ export default function ProfileView({
                 <Edit3 className="w-4 h-4 text-red-500" />
                 <span>Interactive Profile Customizer Form</span>
               </h4>
+              {onSignOut && (
+                <button
+                  type="button"
+                  onClick={onSignOut}
+                  className="flex items-center gap-1 bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-400 hover:text-white font-bold text-xs px-3.5 py-1.5 rounded-lg transition-all active:scale-95 cursor-pointer shadow-md mr-2 text-[11px]"
+                >
+                  <span>लॉग आउट (Sign Out)</span>
+                </button>
+              )}
               <button
                 onClick={handleSaveProfile}
                 className="flex items-center gap-1 bg-red-600 hover:bg-red-500 text-white font-bold text-xs px-3.5 py-1.5 rounded-lg transition-all active:scale-95 cursor-pointer shadow-md"
@@ -1455,12 +1446,12 @@ export default function ProfileView({
 
             {/* RIGHT PANEL: LIVE REPORT & ELIGIBILITY STATUS (7 Columns) */}
             <div className="lg:col-span-7 bg-slate-950/40 border border-slate-850 rounded-2xl p-4 sm:p-5 space-y-4">
-              <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider block border-b border-slate-900 pb-1.5">
+              <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider block border-b border-slate-900 pb-1.5 font-sans">
                 Interactive Health Diagnostics Report (निदान रिपोर्ट)
               </span>
 
               {diagReport && (
-                <div className="space-y-4 text-left">
+                <div className="space-y-4 text-left font-sans">
                   {/* Score & Status Panel */}
                   <div className="flex flex-col sm:flex-row items-center gap-4 bg-slate-950/80 p-4 rounded-xl border border-slate-800">
                     {/* Score radial representation */}
@@ -1479,7 +1470,7 @@ export default function ProfileView({
                           strokeDashoffset={2 * Math.PI * 34 * (1 - diagReport.score / 100)}
                         />
                       </svg>
-                      <div className="absolute flex flex-col items-center">
+                      <div className="absolute flex flex-col items-center font-sans">
                         <span className="text-lg font-black text-white leading-none font-mono">{diagReport.score}</span>
                         <span className="text-[8px] text-slate-500 font-bold">SCORE</span>
                       </div>
@@ -1494,10 +1485,10 @@ export default function ProfileView({
                       }`}>
                         {diagReport.eligible ? "● ELIGIBLE (रक्तदान के लिए सुरक्षित)" : "⚠ TEMPORARILY INELIGIBLE (अपात्र)"}
                       </span>
-                      <p className="text-xs text-slate-300 font-medium leading-relaxed">
+                      <p className="text-xs text-slate-300 font-medium leading-relaxed font-sans">
                         {diagReport.eligible 
                           ? "आपके शारीरिक स्वास्थ्य लक्षण रक्तदान के लिए बिल्कुल अनुकूल हैं। कृपया सुरक्षित रक्तदान करके जीवन बचाएं!"
-                          : "सुरक्षा कारणों से, आज आपको रक्तदान न करने की सलाह दी जाती है। कृपया कारणों की सूची देखें।"
+                          : "सुरक्षा कारणों से, आज आपको रक्तदान न करने की सलाह दी जाती. है। कृपया कारणों की सूची देखें।"
                         }
                       </p>
                     </div>
@@ -1506,10 +1497,10 @@ export default function ProfileView({
                   {/* Warnings Checklist */}
                   {diagReport.warnings.length > 0 && (
                     <div className="space-y-1.5">
-                      <span className="text-[9px] uppercase font-bold text-red-500 tracking-wider block">सावधानियां और रुकावटें (Warnings checklist):</span>
+                      <span className="text-[9px] uppercase font-bold text-red-500 tracking-wider block font-sans">सावधानियां और रुकावटें (Warnings checklist):</span>
                       <div className="space-y-1.5">
                         {diagReport.warnings.map((warn, index) => (
-                          <div key={index} className="flex items-start gap-2 bg-red-950/20 border border-red-500/10 p-2.5 rounded-lg text-xs text-red-300 leading-normal">
+                          <div key={index} className="flex items-start gap-2 bg-red-950/20 border border-red-500/10 p-2.5 rounded-lg text-xs text-red-300 leading-normal font-sans">
                             <AlertCircle className="w-3.5 h-3.5 text-red-400 shrink-0 mt-0.5" />
                             <span>{warn}</span>
                           </div>
@@ -1520,10 +1511,10 @@ export default function ProfileView({
 
                   {/* Recommendations */}
                   <div className="space-y-1.5">
-                    <span className="text-[9px] uppercase font-bold text-sky-400 tracking-wider block">चिकित्सीय सुझाव और सुधार गाइड (Advice & Care):</span>
+                    <span className="text-[9px] uppercase font-bold text-sky-400 tracking-wider block font-sans">चिकित्सीय सुझाव और सुधार गाइड (Advice & Care):</span>
                     <div className="space-y-1.5">
                       {diagReport.recommendations.map((rec, index) => (
-                        <div key={index} className="flex items-start gap-2 bg-slate-900 border border-slate-850 p-2.5 rounded-lg text-xs text-slate-300 leading-normal">
+                        <div key={index} className="flex items-start gap-2 bg-slate-900 border border-slate-850 p-2.5 rounded-lg text-xs text-slate-300 leading-normal font-sans">
                           <Info className="w-3.5 h-3.5 text-sky-400 shrink-0 mt-0.5" />
                           <span>{rec}</span>
                         </div>
@@ -1536,325 +1527,59 @@ export default function ProfileView({
             </div>
           </div>
 
-          {/* BLOOD GROUP COMPATIBILITY MATRIX SECTION */}
+          {/* DIET AND CARE ADVISORY HUB */}
           <div className="bg-slate-950/60 border border-slate-850 rounded-2xl p-4 sm:p-5 space-y-4 text-left">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-900 pb-3">
-              <div>
-                <h4 className="text-xs font-extrabold text-white uppercase tracking-wider font-sans flex items-center gap-1.5">
-                  <Heart className="w-4 h-4 text-red-500" />
-                  <span>Blood Group Compatibility Matrix (रक्त समूह अनुकूलता मैट्रिक्स)</span>
-                </h4>
-                <p className="text-[10px] text-slate-500">विभिन्न रक्त समूहों के आदान-प्रदान और अनुकूलता की जाँच करें</p>
-              </div>
-
-              {/* Blood group quick selection row */}
-              <div className="flex items-center gap-2">
-                <span className="text-[9px] text-slate-500 font-bold font-mono uppercase">Select group:</span>
-                <div className="flex flex-wrap gap-1 max-w-[240px] sm:max-w-none">
-                  {["O+", "O-", "A+", "A-", "B+", "B-", "AB+", "AB-"].map((bg) => (
-                    <button
-                      key={bg}
-                      onClick={() => {
-                        setBloodGroup(bg);
-                        addLog(`INF - Compatibility lookup changed to ${bg}`);
-                      }}
-                      className={`px-1.5 py-0.5 rounded text-[10px] font-mono font-bold transition-all cursor-pointer ${
-                        bloodGroup === bg
-                          ? "bg-red-600 text-white"
-                          : "bg-slate-900 text-slate-400 hover:text-slate-200"
-                      }`}
-                    >
-                      {bg}
-                    </button>
-                  ))}
-                </div>
-              </div>
+            <div className="border-b border-slate-900 pb-3">
+              <h4 className="text-xs font-extrabold text-white uppercase tracking-wider font-sans flex items-center gap-1.5">
+                <Sparkles className="w-4 h-4 text-red-500 animate-pulse" />
+                <span>स्वस्थ रक्तदान: खान-पान और महत्वपूर्ण परहेज़ (Diet, Do's & Don'ts Hub)</span>
+              </h4>
+              <p className="text-[10px] text-slate-500">सुरक्षित और सफल रक्तदान सुनिश्चित करने के लिए चिकित्सा विशेषज्ञों द्वारा स्वीकृत दिशानिर्देश</p>
             </div>
 
-            {/* Donor & Recipient compatibility lists */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              {/* Can Donate To Box */}
-              <div className="bg-slate-950 p-4 rounded-xl border border-slate-900/80 space-y-2">
-                <span className="text-[10px] font-bold text-emerald-400 uppercase tracking-wider block flex items-center gap-1">
-                  <span>आप इन्हें रक्तदान कर सकते हैं (Can Donate To)</span>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 font-sans">
+              {/* Box 1: Before Donation */}
+              <div className="bg-slate-900/60 border border-slate-850 p-4 rounded-xl space-y-2">
+                <span className="text-[11px] font-black text-amber-400 uppercase tracking-wide block border-b border-slate-850 pb-1 flex items-center gap-1">
+                  <span>🍎 रक्तदान से पहले (Before Donation)</span>
                 </span>
-                <p className="text-[10px] text-slate-500 leading-normal">
-                  रक्त समूह <strong>{bloodGroup}</strong> वाला डोनर सुरक्षित रूप से निम्नलिखित रक्त समूहों के मरीजों की जान बचा सकता है:
-                </p>
-                <div className="flex flex-wrap gap-1.5 pt-1">
-                  {getCompatibilityData(bloodGroup).canDonateTo.map((targetBg) => (
-                    <span
-                      key={targetBg}
-                      className="bg-emerald-950/40 border border-emerald-500/20 text-emerald-400 px-2.5 py-1 rounded-lg text-xs font-mono font-bold"
-                    >
-                      {targetBg}
-                    </span>
-                  ))}
-                  {bloodGroup === "O-" && (
-                    <span className="bg-emerald-500 text-slate-950 text-[9px] px-2 py-0.5 rounded-full font-bold uppercase self-center ml-auto">
-                      Universal Donor
-                    </span>
-                  )}
-                </div>
+                <ul className="text-xs text-slate-400 space-y-1.5 list-disc pl-4 font-sans leading-normal">
+                  <li><strong>आयरन युक्त भोजन:</strong> पालक, अनार, बीट, सोयाबीन, अंडे या दालें खाएं जिससे हीमोग्लोबिन ठीक रहे।</li>
+                  <li><strong>भरपूर पानी पिएं:</strong> रक्तदान से 24 घंटे पहले कम से कम 10-12 गिलास पानी या जूस अवश्य पिएं।</li>
+                  <li><strong>पूरी नींद लें:</strong> रक्तदान की पूर्व रात्रि में कम से कम 7-8 घंटे की गहरी नींद लें।</li>
+                  <li><strong>हल्का भोजन लें:</strong> खाली पेट रक्तदान न करें, दान करने से 2-3 घंटे पहले एक हल्का और स्वस्थ आहार लें।</li>
+                </ul>
               </div>
 
-              {/* Can Receive From Box */}
-              <div className="bg-slate-950 p-4 rounded-xl border border-slate-900/80 space-y-2">
-                <span className="text-[10px] font-bold text-red-400 uppercase tracking-wider block flex items-center gap-1">
-                  <span>आप इनसे रक्त प्राप्त कर सकते हैं (Can Receive From)</span>
+              {/* Box 2: After Donation */}
+              <div className="bg-slate-900/60 border border-slate-850 p-4 rounded-xl space-y-2">
+                <span className="text-[11px] font-black text-emerald-400 uppercase tracking-wide block border-b border-slate-850 pb-1 flex items-center gap-1">
+                  <span>🥤 रक्तदान के बाद (After Donation)</span>
                 </span>
-                <p className="text-[10px] text-slate-500 leading-normal">
-                  मरीज जिसका रक्त समूह <strong>{bloodGroup}</strong> है, वह आपातकाल में केवल निम्नलिखित रक्त समूहों से सुरक्षित रूप से प्राप्त कर सकता है:
-                </p>
-                <div className="flex flex-wrap gap-1.5 pt-1">
-                  {getCompatibilityData(bloodGroup).canReceiveFrom.map((sourceBg) => (
-                    <span
-                      key={sourceBg}
-                      className="bg-red-950/40 border border-red-500/20 text-red-400 px-2.5 py-1 rounded-lg text-xs font-mono font-bold"
-                    >
-                      {sourceBg}
-                    </span>
-                  ))}
-                  {bloodGroup === "AB+" && (
-                    <span className="bg-red-500 text-white text-[9px] px-2 py-0.5 rounded-full font-bold uppercase self-center ml-auto">
-                      Universal Recipient
-                    </span>
-                  )}
-                </div>
+                <ul className="text-xs text-slate-400 space-y-1.5 list-disc pl-4 font-sans leading-normal">
+                  <li><strong>आराम और जलपान:</strong> रक्तदान के तुरंत बाद 15 मिनट आराम करें और मीठा तरल (जैसे जूस) व बिस्कुट लें।</li>
+                  <li><strong>हाइड्रेशन बनाए रखें:</strong> दान करने के बाद अगले 24-48 घंटों तक भरपूर पानी और तरल पदार्थ पीते रहें।</li>
+                  <li><strong>भारी सामान न उठाएं:</strong> रक्तदान वाले हाथ से अगले 4-5 घंटों तक कोई भी भारी वजन उठाने से बचें।</li>
+                  <li><strong>धूम्रपान और अल्कोहल:</strong> रक्तदान के बाद कम से कम 6 घंटे तक धूम्रपान और 24 घंटे तक शराब के सेवन से बचें।</li>
+                </ul>
+              </div>
+
+              {/* Box 3: What to Avoid (Absolute Don'ts) */}
+              <div className="bg-slate-900/60 border border-slate-850 p-4 rounded-xl space-y-2">
+                <span className="text-[11px] font-black text-red-400 uppercase tracking-wide block border-b border-slate-850 pb-1 flex items-center gap-1">
+                  <span>⚠️ विशेष परहेज़ और सावधानियां (Don'ts)</span>
+                </span>
+                <ul className="text-xs text-slate-400 space-y-1.5 list-disc pl-4 font-sans leading-normal">
+                  <li><strong>तुरंत धूप में न जाएं:</strong> रक्तदान करने के तुरंत बाद तेज़ धूप या अत्यधिक गर्मी में जाने से बचें।</li>
+                  <li><strong>कड़ा व्यायाम न करें:</strong> दान करने के बाद अगले 24 घंटों तक जिम, दौड़ना या भारी व्यायाम न करें।</li>
+                  <li><strong>पट्टी/बैंडेज सुरक्षा:</strong> सुई वाली जगह पर लगी बैंडेज को कम से कम 5-6 घंटे तक न हटाएं।</li>
+                  <li><strong>चक्कर आने पर:</strong> यदि कभी भी चक्कर या कमज़ोरी महसूस हो, तो तुरंत लेट जाएं और पैर ऊपर उठाएं।</li>
+                </ul>
               </div>
             </div>
           </div>
         </div>
-      ) : (
-        /* DONATE / SUPPORT US TAB SECTION */
-        <div className="space-y-6">
-          <div className="border-b border-slate-800 pb-3">
-            <h4 className="text-sm font-extrabold text-white uppercase tracking-wider font-sans flex items-center gap-2">
-              <Heart className="w-4 h-4 text-red-500 animate-pulse fill-red-500/20" />
-              <span>स्वैच्छिक दान और समर्थन (Voluntary Support)</span>
-            </h4>
-            <p className="text-[11px] text-slate-400">Blood AI एक गैर-लाभकारी सामाजिक पहल है। आपके छोटे से सहयोग से हम जीवन बचा सकते हैं।</p>
-          </div>
-
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-            {/* LEFT PANEL: INTERACTIVE SIMULATOR (7 Columns) */}
-            <div className="lg:col-span-7 bg-slate-950/40 border border-slate-850 rounded-2xl p-5 space-y-4 text-slate-100">
-              <div className="p-4 bg-gradient-to-br from-red-950/40 via-slate-950 to-slate-950 rounded-xl border border-red-500/15 text-xs text-slate-300 leading-relaxed shadow-sm relative overflow-hidden">
-                <div className="absolute top-1 right-2 text-3xl opacity-10">❤️</div>
-                <p className="font-sans font-medium text-[13px] text-slate-200">
-                  "Blood AI एक सामाजिक पहल है। यदि आप इस प्लेटफ़ॉर्म के विकास में सहयोग करना चाहते हैं, तो स्वैच्छिक दान कर सकते हैं। आपका योगदान ऐप को बेहतर बनाने, सर्वर चलाने और अधिक लोगों तक सेवा पहुँचाने में उपयोग किया जाएगा।"
-                </p>
-              </div>
-
-              {donationStep === "input" && (
-                <div className="space-y-4">
-                  <div>
-                    <label className="block text-[11px] font-black uppercase text-slate-400 tracking-wider mb-2">योगदान राशि चुनें (Select Amount)</label>
-                    <div className="grid grid-cols-5 gap-2">
-                      {[100, 250, 500, 1000, 2000].map((amt) => (
-                        <button
-                          key={amt}
-                          type="button"
-                          onClick={() => {
-                            setCustomAmount(amt.toString());
-                            if (onShowToast) onShowToast(`राशि चुनी गई: ₹${amt}`);
-                          }}
-                          className={`py-2 px-1 rounded-xl text-xs font-bold font-mono transition-all border active:scale-95 cursor-pointer ${
-                            customAmount === amt.toString()
-                              ? "bg-red-600/20 border-red-500 text-red-400"
-                              : "bg-slate-900 border-slate-800 hover:border-slate-700 text-slate-300"
-                          }`}
-                        >
-                          ₹{amt}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  <div className="space-y-1.5">
-                    <label className="block text-[11px] font-black uppercase text-slate-400 tracking-wider">या कस्टम राशि दर्ज करें (Or Enter Custom Amount)</label>
-                    <div className="relative">
-                      <span className="absolute left-3.5 top-1/2 -translate-y-1/2 font-bold text-slate-500 text-sm">₹</span>
-                      <input
-                        type="text"
-                        pattern="[0-9]*"
-                        placeholder="अपनी इच्छानुसार कोई भी राशि लिखें..."
-                        value={customAmount}
-                        onChange={(e) => {
-                          const val = e.target.value.replace(/[^0-9]/g, "");
-                          setCustomAmount(val);
-                        }}
-                        className="w-full bg-slate-950 border border-slate-800 rounded-xl py-2.5 pl-8 pr-4 text-sm font-bold text-white focus:outline-none focus:border-red-500"
-                      />
-                    </div>
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={handleInitiateDonation}
-                    disabled={!customAmount || parseInt(customAmount) <= 0}
-                    className="w-full py-3 bg-red-600 hover:bg-red-500 disabled:opacity-50 disabled:pointer-events-none text-white rounded-xl text-xs font-extrabold tracking-wider uppercase transition-all active:scale-95 cursor-pointer shadow-lg shadow-red-900/10 flex items-center justify-center gap-1.5"
-                  >
-                    <span>Proceed to Support ₹{customAmount || "0"}</span>
-                  </button>
-                </div>
-              )}
-
-              {donationStep === "processing" && (
-                <div className="py-8 flex flex-col items-center justify-center text-center space-y-4">
-                  <div className="relative">
-                    <div className="w-12 h-12 rounded-full border-2 border-red-500/10 border-t-2 border-t-red-500 animate-spin"></div>
-                    <Heart className="w-5 h-5 text-red-500 absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 animate-pulse" />
-                  </div>
-                  <div>
-                    <h5 className="text-xs font-bold text-white uppercase tracking-wider">सुरक्षित भुगतान गेटवे से जुड़ रहे हैं...</h5>
-                    <p className="text-[10px] text-slate-500 mt-1">Connecting to secure UPI interface. Please do not close or refresh this page.</p>
-                  </div>
-                </div>
-              )}
-
-              {donationStep === "awaiting" && (
-                <div className="p-5 bg-slate-950 rounded-xl border border-slate-800 space-y-4 text-center">
-                  <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-amber-500/10 text-amber-500 border border-amber-500/20 mb-1">
-                    <Clock className="w-6 h-6 animate-spin" style={{ animationDuration: '3s' }} />
-                  </div>
-                  <div className="space-y-1">
-                    <h5 className="text-xs font-bold text-white uppercase tracking-wider">मोबाइल ऐप पर पेमेंट की स्वीकृति का इंतजार है...</h5>
-                    <p className="text-[10px] text-slate-400">
-                      We have sent a collect request of <strong className="text-red-400 font-mono">₹{customAmount}</strong> to your UPI app. Please open GPay, PhonePe, or Paytm and authorize the payment.
-                    </p>
-                  </div>
-
-                  <div className="pt-2 flex flex-col sm:flex-row gap-2 max-w-xs mx-auto">
-                    <button
-                      type="button"
-                      onClick={handleApproveDonation}
-                      className="flex-1 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-[10px] font-bold transition-all active:scale-95 cursor-pointer shadow-md uppercase"
-                    >
-                      ✓ Approve (Simulate Payment)
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setDonationStep("input")}
-                      className="py-2 px-3 bg-slate-900 hover:bg-slate-850 border border-slate-800 text-slate-400 rounded-lg text-[10px] font-bold transition-all active:scale-95 cursor-pointer uppercase"
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {donationStep === "success" && (
-                <div className="p-6 bg-slate-950 rounded-2xl border border-emerald-500/20 space-y-5 text-center relative overflow-hidden">
-                  <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-9xl opacity-5 select-none pointer-events-none">🩸</div>
-                  
-                  <div className="inline-flex items-center justify-center w-14 h-14 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 mb-1 relative z-10 animate-bounce">
-                    <Check className="w-8 h-8" />
-                  </div>
-
-                  <div className="space-y-1.5 relative z-10">
-                    <h5 className="text-sm font-black text-emerald-400 uppercase tracking-widest">योगदान सफलतापूर्वक प्राप्त हुआ!</h5>
-                    <p className="text-xs text-slate-200">
-                      Amount Contributed: <strong className="text-white text-sm font-mono">₹{customAmount}</strong>
-                    </p>
-                    <p className="text-[10px] text-slate-400 leading-relaxed max-w-md mx-auto">
-                      आपके इस स्वैच्छिक योगदान के लिए हम अत्यंत आभारी हैं। आपका यह उपहार Blood AI को सर्वर रखरखाव, डेटाबेस स्केलिंग और ग्रामीण क्षेत्रों में निःशुल्क आपातकालीन स्वास्थ्य सेवाएँ उपलब्ध कराने में मदद करेगा।
-                    </p>
-                  </div>
-
-                  <div className="mx-auto max-w-sm bg-slate-900 border border-slate-800/80 rounded-xl p-4 text-left relative overflow-hidden shadow-inner">
-                    <div className="absolute -right-3 -top-3 w-16 h-16 bg-red-600/10 rounded-full blur-xl"></div>
-                    <div className="flex justify-between items-start">
-                      <div>
-                        <span className="text-[8px] bg-red-600/15 border border-red-500/25 text-red-400 px-1.5 py-0.2 rounded font-mono font-bold uppercase tracking-wider">Official Contributor Pass</span>
-                        <h6 className="text-[11px] font-extrabold text-white uppercase mt-1.5">{profileName}</h6>
-                        <p className="text-[8px] text-slate-500 mt-0.5">Contributor ID: BAI-CONT-{Math.floor(100000 + Math.random() * 900000)}</p>
-                      </div>
-                      <div className="text-right">
-                        <span className="text-[9px] text-slate-500">Date</span>
-                        <p className="text-[10px] font-mono font-bold text-slate-300">{new Date().toLocaleDateString()}</p>
-                        <p className="text-[10px] font-mono font-extrabold text-red-400 mt-1">₹{customAmount}</p>
-                      </div>
-                    </div>
-                    <div className="border-t border-slate-800/60 mt-3 pt-2 flex items-center justify-between text-[8px] text-slate-400">
-                      <span>❤️ Life Saved With Blood AI Initiative</span>
-                      <span className="font-mono font-bold text-slate-500">VERIFIED</span>
-                    </div>
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={() => setDonationStep("input")}
-                    className="w-full sm:w-auto px-6 py-2 bg-slate-900 hover:bg-slate-850 border border-slate-800 text-slate-300 rounded-xl text-xs font-bold transition-all active:scale-95 cursor-pointer uppercase relative z-10"
-                  >
-                    नया दान करें (Donate Again)
-                  </button>
-                </div>
-              )}
-            </div>
-
-            {/* RIGHT PANEL: UPI DETAILS & SCANNER (5 Columns) */}
-            <div className="lg:col-span-5 bg-slate-950/40 border border-slate-850 rounded-2xl p-5 space-y-4">
-              <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider block border-b border-slate-900 pb-1.5">
-                Scan & Contribute Directly (सीधा भुगतान)
-              </span>
-
-              <div className="bg-slate-900 p-4 rounded-xl border border-slate-850 flex flex-col items-center justify-center text-center space-y-3">
-                <div className="bg-white p-3 rounded-xl shadow-lg relative">
-                  <svg className="w-32 h-32 text-slate-900" viewBox="0 0 100 100" fill="currentColor">
-                    <path d="M5 5h30v30H5V5zm6 6v18h18V11H11zm54-6h30v30H65V5zm6 6v18h18V11H71zM5 65h30v30H5V65zm6 6v18h18V71H11zm50-10h4v4h-4v-4zm8 0h4v4h-4v-4zm-8 8h4v4h-4v-4zm8 0h4v4h-4v-4zm10-8h4v12h-4v-12zm-22 14h4v4h-4v-4zm14 0h4v4h-4v-4zm8 0h4v4h-4v-4zm-22 8h8v4h-8v-4zm12 0h8v4h-8v-4zm10-12h4v4h-4v-4zM20 20h2v2h-2v-2zm4 0h2v2h-2v-2zm-4 4h2v2h-2v-2zm4 0h2v2h-2v-2zM80 20h2v2h-2v-2zm4 0h2v2h-2v-2zm-4 4h2v2h-2v-2zm4 0h2v2h-2v-2zM20 80h2v2h-2v-2zm4 0h2v2h-2v-2zm-4 4h2v2h-2v-2zm4 0h2v2h-2v-2z" />
-                  </svg>
-                  <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-white p-1 rounded-lg border border-slate-100 text-xs">
-                    🩸
-                  </div>
-                </div>
-
-                <div className="space-y-0.5">
-                  <span className="text-[9px] bg-red-600/15 border border-red-500/25 text-red-400 px-2 py-0.5 rounded font-mono font-bold uppercase tracking-wider">UPI SCANNER ACTIVE</span>
-                  <p className="text-[10px] text-slate-400 mt-1 leading-normal">GPay, PhonePe, Paytm, BHIM या किसी भी बैंकिंग ऐप से स्कैन करके दान करें।</p>
-                </div>
-              </div>
-
-              <div className="space-y-1.5">
-                <span className="text-[10px] font-bold text-slate-500 uppercase block">Official Donation UPI ID</span>
-                <div className="flex bg-slate-950 border border-slate-850 rounded-xl p-1 items-center justify-between">
-                  <span className="text-xs font-mono font-bold text-slate-200 pl-3">donate@bloodai</span>
-                  <button
-                    type="button"
-                    onClick={handleCopyUpiId}
-                    className="px-3 py-1.5 bg-red-600 hover:bg-red-500 text-white text-[10px] font-bold rounded-lg transition-all active:scale-95 cursor-pointer flex items-center gap-1 shrink-0"
-                  >
-                    <Copy className="w-3 h-3" />
-                    <span>Copy</span>
-                  </button>
-                </div>
-              </div>
-
-              <div className="bg-slate-950/60 border border-slate-850 p-4 rounded-xl space-y-3">
-                <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">बैंक ट्रांसफर विवरण (Bank Accounts)</span>
-                <div className="text-[11px] space-y-1.5 text-slate-300">
-                  <div className="flex justify-between border-b border-slate-900 pb-1">
-                    <span className="text-slate-500">Account Name:</span>
-                    <strong className="text-white">Blood AI Social Initiative</strong>
-                  </div>
-                  <div className="flex justify-between border-b border-slate-900 pb-1">
-                    <span className="text-slate-500">Bank Name:</span>
-                    <strong className="text-white">State Bank of India (SBI)</strong>
-                  </div>
-                  <div className="flex justify-between border-b border-slate-900 pb-1">
-                    <span className="text-slate-500">Account Number:</span>
-                    <strong className="text-white font-mono">10293847565 (Simulated)</strong>
-                  </div>
-                  <div className="flex justify-between pb-0.5">
-                    <span className="text-slate-500">IFSC Code:</span>
-                    <strong className="text-white font-mono">SBIN0001234</strong>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+      ) : null}
     </div>
   );
 }

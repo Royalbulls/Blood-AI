@@ -36,7 +36,10 @@ import {
   Globe,
   SlidersHorizontal,
   Users,
-  Check
+  Check,
+  Settings,
+  Menu,
+  Trash
 } from "lucide-react";
 import { Donor, EmergencyRequest, BloodBank, ChatMessage, CommunityPost } from "./types";
 import { TRANSLATIONS } from "./translations";
@@ -45,6 +48,10 @@ import ChatSection from "./components/ChatSection";
 import EmergencyView from "./components/EmergencyView";
 import MapView from "./components/MapView";
 import ProfileView from "./components/ProfileView";
+import { CommunityView } from "./components/CommunityView";
+import AboutTrustCenter from "./components/AboutTrustCenter";
+import { onAuthStateChanged, User as FirebaseUser } from "firebase/auth";
+import { auth, signInWithGoogle, logOutGoogle } from "./lib/firebase";
 
 // Coordinates for pre-seeded Indian cities
 const CITY_COORDINATES: Record<string, { lat: number; lng: number }> = {
@@ -102,8 +109,10 @@ function calculateDistance(lat1: number, lon1: number, lat2: number, lon2: numbe
 }
 
 export default function App() {
-  // Main view state: 'home' | 'chat' | 'emergency' | 'map' | 'profile'
-  const [activeView, setActiveView] = useState<"home" | "chat" | "emergency" | "map" | "profile">("home");
+  // Main view state: 'home' | 'chat' | 'emergency' | 'map' | 'profile' | 'community' | 'settings'
+  const [activeView, setActiveView] = useState<"home" | "chat" | "emergency" | "map" | "profile" | "community" | "settings">("home");
+  const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(false);
+  const [isHeaderSearchOpen, setIsHeaderSearchOpen] = useState<boolean>(false);
 
   // Multi-lingual & Theme States
   const [language, setLanguage] = useState<"hi" | "en" | "hinglish">("hi");
@@ -231,9 +240,9 @@ export default function App() {
   const [favoriteServices, setFavoriteServices] = useState<string[]>(() => {
     try {
       const saved = localStorage.getItem("blood_ai_favorite_services");
-      return saved ? JSON.parse(saved) : ["Blood Search", "Donor Search", "Emergency Requests", "Live Map", "Live Peer Chat"];
+      return saved ? JSON.parse(saved) : ["Blood Search", "Donor Search", "Emergency Requests", "Live Map", "Live Peer Chat", "Latest Jankari"];
     } catch {
-      return ["Blood Search", "Donor Search", "Emergency Requests", "Live Map", "Live Peer Chat"];
+      return ["Blood Search", "Donor Search", "Emergency Requests", "Live Map", "Live Peer Chat", "Latest Jankari"];
     }
   });
 
@@ -247,8 +256,63 @@ export default function App() {
     "Donor Search",
     "Emergency Requests",
     "Live Map",
-    "Live Peer Chat"
+    "Live Peer Chat",
+    "Latest Jankari"
   ]);
+
+  const [shareLocationConsent, setShareLocationConsent] = useState<boolean>(true);
+  const [isLoginMode, setIsLoginMode] = useState<boolean>(false);
+  const [loginQuery, setLoginQuery] = useState<string>("");
+  const [registeredUsers, setRegisteredUsers] = useState<any[]>([]);
+
+  const [googleUser, setGoogleUser] = useState<FirebaseUser | null>(null);
+  const [isGoogleAuthLoading, setIsGoogleAuthLoading] = useState<boolean>(false);
+
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      if (user) {
+        setGoogleUser(user);
+        // Automatically check if they are registered on our server
+        try {
+          const response = await fetch("/api/google-login", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              googleId: user.uid,
+              email: user.email,
+              name: user.displayName || "",
+              photoURL: user.photoURL || ""
+            })
+          });
+          if (response.ok) {
+            const data = await response.json();
+            if (data.success && data.user) {
+              const u = data.user;
+              localStorage.setItem("blood_ai_profile_name", u.name);
+              localStorage.setItem("blood_ai_profile_blood", u.bloodGroup);
+              localStorage.setItem("blood_ai_profile_location", u.location);
+              localStorage.setItem("blood_ai_profile_phone", u.contact);
+              localStorage.setItem("blood_ai_registered_tags", JSON.stringify(u.roles));
+              localStorage.setItem("blood_ai_favorite_services", JSON.stringify(u.services || []));
+
+              setIsRegistered(true);
+              setRegisteredTags(u.roles);
+              setFavoriteServices(u.services || []);
+              await fetchDbState();
+            } else if (data.success && data.isNew) {
+              // Authenticated with Google but not yet registered in database
+              setOnboardName(user.displayName || "");
+            }
+          }
+        } catch (err) {
+          console.error("Auto Google login check failed:", err);
+        }
+      } else {
+        setGoogleUser(null);
+      }
+    });
+    return () => unsubscribe();
+  }, []);
 
   // Clock
   const [utcTime, setUtcTime] = useState<string>("");
@@ -451,6 +515,7 @@ export default function App() {
         setEmergencyRequests(data.emergencyRequests || []);
         setBloodBanks(data.bloodBanks || []);
         setCommunityPosts(data.communityPosts || []);
+        setRegisteredUsers(data.users || []);
       }
     } catch (err) {
       console.error("Error fetching db state:", err);
@@ -462,6 +527,15 @@ export default function App() {
     setTimeout(() => {
       autoDetectLocationOnStart();
     }, 1500);
+
+    // Check for referral or shared donor link
+    const params = new URLSearchParams(window.location.search);
+    const donorName = params.get("donor");
+    if (donorName) {
+      setTimeout(() => {
+        showToast(`👋 Blood AI में आपका स्वागत है! आपको *${decodeURIComponent(donorName)}* द्वारा आमंत्रित किया गया है।`);
+      }, 3500);
+    }
   }, []);
 
   useEffect(() => {
@@ -592,6 +666,11 @@ export default function App() {
         body: JSON.stringify({
           message: text,
           history: chatMessages,
+          userLocation: localStorage.getItem("blood_ai_profile_location") || customLocationName || "Delhi, India",
+          userCoords: userCoords,
+          language: language,
+          profileName: localStorage.getItem("blood_ai_profile_name") || "Guest",
+          profileBlood: localStorage.getItem("blood_ai_profile_blood") || "Unknown"
         }),
       });
 
@@ -658,7 +737,7 @@ export default function App() {
     );
   };
 
-  const handleCompleteOnboarding = (e: React.FormEvent) => {
+  const handleCompleteOnboarding = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!onboardName.trim() || !onboardLocation.trim() || !onboardContact.trim()) {
       showToast("कृपया सभी आवश्यक विवरण भरें।");
@@ -672,24 +751,153 @@ export default function App() {
     localStorage.setItem("blood_ai_registered_tags", JSON.stringify(onboardTags));
     localStorage.setItem("blood_ai_favorite_services", JSON.stringify(onboardServices));
 
-    // Sync with memory
-    if (onboardTags.includes("रक्त दाता (Blood Donor)")) {
-      const newDonor: Donor = {
-        id: "donor_" + Date.now(),
-        name: onboardName,
-        bloodGroup: onboardBloodGroup === "पता नहीं (Don't Know)" ? "O+" : onboardBloodGroup,
-        location: onboardLocation,
-        contact: onboardContact,
-        age: 28,
-        lastDonation: "Never"
-      };
-      setDonors(prev => [newDonor, ...prev]);
+    // Get current position coordinates for the Global Map if user consented!
+    let latitude = 23.8388; // fallback Sagar
+    let longitude = 78.7378;
+
+    if (shareLocationConsent && navigator.geolocation) {
+      try {
+        const position = await new Promise<GeolocationPosition>((resolve, reject) => {
+          navigator.geolocation.getCurrentPosition(resolve, reject, { timeout: 4000 });
+        });
+        latitude = position.coords.latitude;
+        longitude = position.coords.longitude;
+      } catch (err) {
+        console.log("Could not obtain high-accuracy GPS onboarding coordinates, using custom name coordinates.");
+      }
+    }
+
+    // Sync to backend Server!
+    try {
+      const response = await fetch("/api/register-user", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: onboardName,
+          contact: onboardContact,
+          location: onboardLocation,
+          bloodGroup: onboardBloodGroup === "पता नहीं (Don't Know)" ? "O+" : onboardBloodGroup,
+          roles: onboardTags,
+          services: onboardServices,
+          latitude,
+          longitude,
+          hasSharedLocation: shareLocationConsent,
+          googleId: googleUser ? googleUser.uid : undefined,
+          email: googleUser ? googleUser.email : undefined,
+          photoURL: googleUser ? googleUser.photoURL : undefined
+        })
+      });
+      if (response.ok) {
+        const data = await response.json();
+        if (data.users) {
+          setRegisteredUsers(data.users);
+        }
+        if (data.donors) {
+          setDonors(data.donors);
+        }
+      }
+    } catch (err) {
+      console.error("Failed to register user to server database:", err);
     }
 
     setIsRegistered(true);
     setRegisteredTags(onboardTags);
     setFavoriteServices(onboardServices);
     showToast("🎉 Blood AI में आपका स्वागत है! पंजीकरण सफलतापूर्वक पूरा हो गया।");
+  };
+
+  const handleGoogleSignIn = async () => {
+    setIsGoogleAuthLoading(true);
+    try {
+      const res = await signInWithGoogle();
+      if (res) {
+        showToast("🎉 Google लॉगिन सफल रहा!");
+      }
+    } catch (err: any) {
+      console.error(err);
+      showToast("⚠️ Google लॉगिन विफल रहा: " + (err.message || ""));
+    } finally {
+      setIsGoogleAuthLoading(false);
+    }
+  };
+
+  const handleGoogleSignOut = async () => {
+    try {
+      await logOutGoogle();
+      localStorage.removeItem("blood_ai_profile_name");
+      localStorage.removeItem("blood_ai_profile_blood");
+      localStorage.removeItem("blood_ai_profile_location");
+      localStorage.removeItem("blood_ai_profile_phone");
+      localStorage.removeItem("blood_ai_registered_tags");
+      localStorage.removeItem("blood_ai_favorite_services");
+      
+      setIsRegistered(false);
+      setGoogleUser(null);
+      showToast("🚪 सफलतापूर्वक लॉग आउट किया गया।");
+    } catch (err: any) {
+      console.error(err);
+    }
+  };
+
+  const handleLoginUser = async () => {
+    if (!loginQuery.trim()) {
+      showToast("कृपया अपना नाम या संपर्क नंबर दर्ज करें।");
+      return;
+    }
+
+    try {
+      const response = await fetch("/api/login-user", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query: loginQuery })
+      });
+
+      if (!response.ok) {
+        const errData = await response.json();
+        showToast(`❌ ${errData.error || "Login Failed"}`);
+        return;
+      }
+
+      const data = await response.json();
+      if (data.success && data.user) {
+        const u = data.user;
+        localStorage.setItem("blood_ai_profile_name", u.name);
+        localStorage.setItem("blood_ai_profile_blood", u.bloodGroup);
+        localStorage.setItem("blood_ai_profile_location", u.location);
+        localStorage.setItem("blood_ai_profile_phone", u.contact);
+        localStorage.setItem("blood_ai_registered_tags", JSON.stringify(u.roles));
+        localStorage.setItem("blood_ai_favorite_services", JSON.stringify(u.services || []));
+
+        setIsRegistered(true);
+        setRegisteredTags(u.roles);
+        setFavoriteServices(u.services || []);
+        showToast(`🎉 ${data.message}`);
+        await fetchDbState();
+      }
+    } catch (err: any) {
+      console.error("Login error:", err);
+      showToast("❌ लॉगिन करने में त्रुटि आई।");
+    }
+  };
+
+  const handleFollowUser = async (userId: string) => {
+    try {
+      const response = await fetch("/api/user/follow", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId })
+      });
+      if (response.ok) {
+        const data = await response.json();
+        if (data.users) {
+          setRegisteredUsers(data.users);
+          const followed = data.users.find((u: any) => u.id === userId);
+          showToast(`❤️ आप अब ${followed?.name || "उपयोगकर्ता"} को फ़ॉलो कर रहे हैं!`);
+        }
+      }
+    } catch (err) {
+      console.error("Failed to follow user:", err);
+    }
   };
 
   const handleDirectRegisterDonor = async (e: React.FormEvent) => {
@@ -901,7 +1109,224 @@ export default function App() {
   };
 
   return (
-    <div id="app_root" className={`min-h-screen flex flex-col font-sans select-none relative selection:bg-red-500/30 overflow-x-hidden pb-10 transition-colors duration-300 ${isDarkMode ? "bg-slate-950 text-slate-100" : "bg-slate-50 text-slate-900"}`}>
+    <div id="app_root" className={`min-h-screen flex flex-row font-sans select-none relative selection:bg-red-500/30 overflow-x-hidden transition-colors duration-300 ${isDarkMode ? "bg-slate-950 text-slate-100" : "bg-slate-50 text-slate-900"}`}>
+      
+      {/* RESPONSIVE PREMIUM SIDEBAR */}
+      {/* 1. Backdrop Overlay (Mobile only, shown when open) */}
+      <AnimatePresence>
+        {isSidebarOpen && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 0.5 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setIsSidebarOpen(false)}
+            className="fixed inset-0 bg-black z-40 md:hidden"
+          />
+        )}
+      </AnimatePresence>
+
+      {/* 2. Sidebar panel */}
+      {isRegistered && (
+        <aside
+          className={`fixed top-0 bottom-0 left-0 z-50 w-64 flex flex-col border-r transition-transform duration-300 ease-in-out md:translate-x-0 ${
+            isSidebarOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0"
+          } ${
+            isDarkMode 
+              ? "bg-slate-950 border-slate-900/80 text-slate-100" 
+              : "bg-white border-slate-200 text-slate-900"
+          }`}
+        >
+          {/* Sidebar Header branding */}
+          <div className="p-4 border-b border-slate-900/10 flex items-center justify-between gap-3 shrink-0">
+            <div className="flex items-center gap-2.5">
+              <div className="w-8.5 h-8.5 rounded-xl bg-gradient-to-br from-red-600 to-red-800 text-white flex items-center justify-center shadow-lg shadow-red-900/20">
+                <span className="text-lg">🩸</span>
+              </div>
+              <div className="text-left">
+                <h1 className="text-xs font-black tracking-wider uppercase font-mono flex items-center gap-1 text-red-500">
+                  <span>Blood AI</span>
+                  <span className="text-[8px] bg-red-600/20 text-red-500 border border-red-500/10 px-1 rounded font-mono font-bold">Pro v1.2</span>
+                </h1>
+                <p className="text-[9px] text-slate-500 font-semibold">Humanitarian Portal</p>
+              </div>
+            </div>
+            {/* Close button on mobile */}
+            <button
+              onClick={() => setIsSidebarOpen(false)}
+              className="md:hidden p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+
+          {/* Navigation Items (Middle Content) */}
+          <div className="flex-1 overflow-y-auto py-4 px-3 space-y-1">
+            <div className="px-3 mb-2 text-[10px] font-black uppercase tracking-wider text-slate-500">
+              मुख्य मेनू (Main Menu)
+            </div>
+            
+            {/* Nav Item: AI Chat */}
+            <button
+              onClick={() => {
+                setActiveView("home");
+                setIsSidebarOpen(false);
+              }}
+              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                activeView === "home" 
+                  ? "bg-red-600 text-white shadow-lg shadow-red-900/20" 
+                  : "text-slate-400 hover:text-white hover:bg-slate-900/30"
+              }`}
+            >
+              <Sparkles className="w-4.5 h-4.5 shrink-0" />
+              <span className="flex-1 text-left">Blood AI Chat</span>
+            </button>
+
+            {/* Nav Item: Emergency Cases */}
+            <button
+              onClick={() => {
+                setActiveView("emergency");
+                setIsSidebarOpen(false);
+              }}
+              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                activeView === "emergency" 
+                  ? "bg-red-600 text-white shadow-lg shadow-red-900/20" 
+                  : "text-slate-400 hover:text-white hover:bg-slate-900/30"
+              }`}
+            >
+              <AlertTriangle className="w-4.5 h-4.5 shrink-0" />
+              <span className="flex-1 text-left">Emergency Cases</span>
+              {emergencyRequests.length > 0 && (
+                <span className="bg-red-550 text-white text-[9px] font-bold px-1.5 py-0.2 rounded-full font-mono">
+                  {emergencyRequests.length}
+                </span>
+              )}
+            </button>
+
+            {/* Nav Item: Live Maps */}
+            <button
+              onClick={() => {
+                setActiveView("map");
+                setIsSidebarOpen(false);
+              }}
+              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                activeView === "map" 
+                  ? "bg-red-600 text-white shadow-lg shadow-red-900/20" 
+                  : "text-slate-400 hover:text-white hover:bg-slate-900/30"
+              }`}
+            >
+              <MapPin className="w-4.5 h-4.5 shrink-0" />
+              <span className="flex-1 text-left">Live Map</span>
+            </button>
+
+            {/* Nav Item: Community Board */}
+            <button
+              onClick={() => {
+                setActiveView("community");
+                setIsSidebarOpen(false);
+              }}
+              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                activeView === "community" 
+                  ? "bg-red-600 text-white shadow-lg shadow-red-900/20" 
+                  : "text-slate-400 hover:text-white hover:bg-slate-900/30"
+              }`}
+            >
+              <Users className="w-4.5 h-4.5 shrink-0" />
+              <span className="flex-1 text-left">Community Board</span>
+            </button>
+
+            {/* Nav Item: Profile Card */}
+            <button
+              onClick={() => {
+                setActiveView("profile");
+                setIsSidebarOpen(false);
+              }}
+              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                activeView === "profile" 
+                  ? "bg-red-600 text-white shadow-lg shadow-red-900/20" 
+                  : "text-slate-400 hover:text-white hover:bg-slate-900/30"
+              }`}
+            >
+              <User className="w-4.5 h-4.5 shrink-0" />
+              <span className="flex-1 text-left">Profile Card</span>
+            </button>
+
+            {/* Nav Item: Diagnostics & Settings */}
+            <button
+              onClick={() => {
+                setActiveView("settings");
+                setIsSidebarOpen(false);
+              }}
+              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                activeView === "settings" 
+                  ? "bg-red-600 text-white shadow-lg shadow-red-900/20" 
+                  : "text-slate-400 hover:text-white hover:bg-slate-900/30"
+              }`}
+            >
+              <Settings className="w-4.5 h-4.5 shrink-0 animate-spin" style={{ animationDuration: "12s" }} />
+              <span className="flex-1 text-left">Diagnostics & Settings</span>
+            </button>
+          </div>
+
+          {/* Sidebar Footer area */}
+          <div className="p-4 border-t border-slate-900/10 space-y-3 shrink-0 bg-slate-950/40">
+            
+            {/* Quick Language Toggle inside sidebar */}
+            <div className="flex items-center justify-between text-[11px] font-bold">
+              <span className="text-slate-500">भाषा (Language):</span>
+              <select
+                value={language}
+                onChange={(e) => {
+                  setLanguage(e.target.value as any);
+                  showToast(`भाषा बदली: ${e.target.value === "hi" ? "Hindi" : e.target.value === "hinglish" ? "Hinglish" : "English"}`);
+                }}
+                className="bg-slate-900 border border-slate-800 text-[10px] rounded px-1.5 py-0.5 font-bold focus:outline-none cursor-pointer text-white"
+              >
+                <option value="hi" className="bg-slate-950">हिंदी</option>
+                <option value="en" className="bg-slate-950">EN</option>
+                <option value="hinglish" className="bg-slate-950">हिंग्लिश</option>
+              </select>
+            </div>
+
+            {/* Theme Mode toggle inside sidebar */}
+            <div className="flex items-center justify-between text-[11px] font-bold">
+              <span className="text-slate-500">थीम (Theme):</span>
+              <button
+                onClick={() => {
+                  setIsDarkMode(!isDarkMode);
+                  showToast(!isDarkMode ? "डार्क मोड सक्रिय!" : "लाइट मोड सक्रिय!");
+                }}
+                className="flex items-center gap-1 bg-slate-900 hover:bg-slate-800 text-[10px] rounded px-2 py-0.5 font-bold border border-slate-800 cursor-pointer text-slate-200"
+              >
+                {isDarkMode ? (
+                  <>
+                    <Moon className="w-3 h-3 text-indigo-400" />
+                    <span>Dark</span>
+                  </>
+                ) : (
+                  <>
+                    <Sun className="w-3 h-3 text-amber-500" />
+                    <span>Light</span>
+                  </>
+                )}
+              </button>
+            </div>
+
+            {/* Connection status card inside sidebar */}
+            <div className="p-2.5 rounded-xl bg-slate-900 border border-slate-850 flex items-center justify-between">
+              <div className="text-[10px] font-bold text-slate-400 truncate max-w-[110px]">
+                {localStorage.getItem("blood_ai_profile_name") || "Guest User"}
+              </div>
+              <span className="flex items-center gap-1 shrink-0">
+                <span className={`w-1.5 h-1.5 rounded-full ${userStatus === "Online" ? "bg-emerald-500 animate-pulse" : "bg-amber-500"}`}></span>
+                <span className="text-[9px] font-mono text-slate-500 font-bold">{userStatus}</span>
+              </span>
+            </div>
+          </div>
+        </aside>
+      )}
+
+      {/* Main Right Content Panel */}
+      <div className={`flex-1 flex flex-col min-w-0 min-h-screen relative ${isRegistered ? "md:pl-64" : ""}`}>
       
       {/* Dynamic AI-First Onboarding Portal */}
       {!isRegistered && (
@@ -924,143 +1349,262 @@ export default function App() {
               <span className="text-[10px] text-slate-500 font-mono font-bold bg-slate-900 px-2 py-0.5 rounded border border-slate-800">STEP 1/1</span>
             </div>
 
-            <form onSubmit={handleCompleteOnboarding} className="p-6 space-y-5">
-              <div className="text-xs text-slate-400 bg-slate-950 p-3 rounded-xl border border-slate-850 leading-relaxed font-medium">
-                Blood AI में सभी का स्वागत है। पंजीकरण के बाद आपको एक AI-first अनुभव मिलेगा। आप अपनी पसंदीदा सेवाएँ चुनकर होम स्क्रीन को व्यवस्थित कर सकते हैं।
-              </div>
-
-              {/* Basic Fields */}
-              <div className="space-y-3.5">
+            {isLoginMode ? (
+              <div className="p-6 space-y-5">
+                <div className="text-xs text-slate-400 bg-slate-950 p-3.5 rounded-xl border border-slate-850 leading-relaxed font-medium">
+                  यदि आपके पास पहले से ही Blood AI प्रोफ़ाइल है, तो अपना पंजीकृत नाम या मोबाइल नंबर दर्ज करें। हम आपकी प्रोफ़ाइल और डेटा को तुरंत बहाल (restore) कर देंगे!
+                </div>
                 <div>
-                  <label className="block text-[10px] uppercase font-black text-slate-400 mb-1.5 tracking-wider">पूरा नाम (Full Name) *</label>
+                  <label className="block text-[10px] uppercase font-black text-slate-450 mb-1.5 tracking-wider">नाम या संपर्क नंबर (Full Name or Phone number) *</label>
                   <input
                     type="text"
                     required
-                    placeholder="e.g. Siddharth Sharma"
-                    value={onboardName}
-                    onChange={(e) => setOnboardName(e.target.value)}
-                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-red-500 transition-colors"
+                    placeholder="e.g. Siddharth Sharma or +91 98765 43210"
+                    value={loginQuery}
+                    onChange={(e) => setLoginQuery(e.target.value)}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-red-500"
                   />
                 </div>
+                <button
+                  type="button"
+                  onClick={handleLoginUser}
+                  className="w-full py-3 bg-red-650 hover:bg-red-550 text-white rounded-xl text-xs font-black transition-all active:scale-95 cursor-pointer shadow-lg shadow-red-900/10 flex items-center justify-center gap-1.5 uppercase tracking-wider"
+                >
+                  <span>खाता लोड करें (Log In Profile)</span>
+                </button>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
-                  <div>
-                    <label className="block text-[10px] uppercase font-black text-slate-400 mb-1.5 tracking-wider">संपर्क नंबर (Contact) *</label>
-                    <input
-                      type="text"
-                      required
-                      placeholder="e.g. +91 98765 43210"
-                      value={onboardContact}
-                      onChange={(e) => setOnboardContact(e.target.value)}
-                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-red-500 transition-colors"
-                    />
+                <div className="relative my-4">
+                  <div className="absolute inset-0 flex items-center">
+                    <div className="w-full border-t border-slate-800"></div>
                   </div>
-                  <div>
-                    <label className="block text-[10px] uppercase font-black text-slate-400 mb-1.5 tracking-wider">शहर / स्थान (City, State) *</label>
-                    <input
-                      type="text"
-                      required
-                      placeholder="e.g. Sagar, Madhya Pradesh"
-                      value={onboardLocation}
-                      onChange={(e) => setOnboardLocation(e.target.value)}
-                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-red-500 transition-colors"
-                    />
+                  <div className="relative flex justify-center text-[10px] uppercase font-bold">
+                    <span className="bg-slate-900 px-3 text-slate-500">या फिर (Or)</span>
                   </div>
                 </div>
 
-                <div>
-                  <label className="block text-[10px] uppercase font-black text-slate-400 mb-1.5 tracking-wider">ब्लड ग्रुप (Blood Group - यदि ज्ञात हो)</label>
-                  <select
-                    value={onboardBloodGroup}
-                    onChange={(e) => setOnboardBloodGroup(e.target.value)}
-                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none focus:border-red-500 cursor-pointer transition-colors"
+                <button
+                  type="button"
+                  disabled={isGoogleAuthLoading}
+                  onClick={handleGoogleSignIn}
+                  className="w-full py-2.5 bg-slate-950 border border-slate-800 hover:border-slate-700 hover:bg-slate-900/50 text-white rounded-xl text-xs font-bold transition-all active:scale-95 cursor-pointer flex items-center justify-center gap-2.5"
+                >
+                  {isGoogleAuthLoading ? (
+                    <RefreshCw className="w-4 h-4 animate-spin text-red-500" />
+                  ) : (
+                    <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                      <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
+                      <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
+                      <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z" fill="#FBBC05"/>
+                      <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z" fill="#EA4335"/>
+                    </svg>
+                  )}
+                  <span>Google के साथ लॉगिन करें</span>
+                </button>
+
+                <div className="text-center">
+                  <button
+                    type="button"
+                    onClick={() => setIsLoginMode(false)}
+                    className="text-xs text-red-400 hover:text-red-300 transition-colors underline font-bold cursor-pointer"
                   >
-                    {["O+", "O-", "A+", "A-", "B+", "B-", "AB+", "AB-", "पता नहीं (Don't Know)"].map(g => (
-                      <option key={g} value={g} className="bg-slate-900">{g}</option>
-                    ))}
-                  </select>
+                    नया खाता बनाएं (Register New Account)
+                  </button>
                 </div>
               </div>
-
-              {/* Multi-select Tags */}
-              <div className="space-y-2">
-                <label className="block text-[10px] uppercase font-black text-slate-400 tracking-wider">
-                  अपनी भूमिका चुनें (Select Your Roles - Choose Multiple)
-                </label>
-                <div className="grid grid-cols-2 gap-2">
-                  {[
-                    "रक्त दाता (Blood Donor)",
-                    "रक्त खोजी (Blood Seeker)",
-                    "स्वयंसेवक (Volunteer)",
-                    "चिकित्सक (Medical Expert)"
-                  ].map(tag => {
-                    const isSelected = onboardTags.includes(tag);
-                    return (
-                      <button
-                        key={tag}
-                        type="button"
-                        onClick={() => toggleOnboardTag(tag)}
-                        className={`p-2.5 text-left rounded-xl border text-[11px] font-bold transition-all active:scale-95 cursor-pointer flex items-center justify-between ${
-                          isSelected
-                            ? "bg-red-600/10 border-red-500 text-red-500"
-                            : "bg-slate-950 border-slate-800 text-slate-400 hover:border-slate-700"
-                        }`}
-                      >
-                        <span>{tag}</span>
-                        {isSelected && <Check className="w-3.5 h-3.5 text-red-500 shrink-0 ml-1" />}
-                      </button>
-                    );
-                  })}
+            ) : (
+              <form onSubmit={handleCompleteOnboarding} className="p-6 space-y-5">
+                <div className="text-xs text-slate-400 bg-slate-950 p-3.5 rounded-xl border border-slate-850 leading-relaxed font-medium">
+                  Blood AI में सभी का स्वागत है। पंजीकरण के बाद आपको एक AI-first अनुभव मिलेगा। आप अपनी पसंदीदा सेवाएँ चुनकर होम स्क्रीन को व्यवस्थित कर सकते हैं।
                 </div>
-              </div>
 
-              {/* Favorite Services Pinning */}
-              <div className="space-y-2">
-                <label className="block text-[10px] uppercase font-black text-slate-400 tracking-wider">
-                  पसंदीदा सेवाएँ चुनें (Choose Favorite Services to Pin)
-                </label>
-                <div className="grid grid-cols-2 gap-2">
-                  {[
-                    "Blood Search",
-                    "Donor Search",
-                    "Emergency Requests",
-                    "Live Map",
-                    "Live Peer Chat",
-                    "Support / Donation"
-                  ].map(service => {
-                    const isSelected = onboardServices.includes(service);
-                    const labelHindi = 
-                      service === "Blood Search" ? "रक्त खोज (Blood Search)" :
-                      service === "Donor Search" ? "दाता खोज (Donor Search)" :
-                      service === "Emergency Requests" ? "आपातकालीन अनुरोध" :
-                      service === "Live Map" ? "लाइव मानचित्र (Live Map)" :
-                      service === "Live Peer Chat" ? "लाइव चैट (Live Peer Chat)" : "स्वैच्छिक दान (Support)";
-                    return (
-                      <button
-                        key={service}
-                        type="button"
-                        onClick={() => toggleOnboardService(service)}
-                        className={`p-2.5 text-left rounded-xl border text-[11px] font-bold transition-all active:scale-95 cursor-pointer flex items-center justify-between ${
-                          isSelected
-                            ? "bg-red-600/10 border-red-500 text-red-500"
-                            : "bg-slate-950 border-slate-800 text-slate-400 hover:border-slate-700"
-                        }`}
-                      >
-                        <span>{labelHindi}</span>
-                        {isSelected && <Check className="w-3.5 h-3.5 text-red-500 shrink-0 ml-1" />}
-                      </button>
-                    );
-                  })}
+                {googleUser ? (
+                  <div className="text-xs text-green-400 bg-emerald-950/30 p-3.5 rounded-xl border border-emerald-900/40 leading-relaxed font-semibold flex items-center gap-2.5">
+                    <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></div>
+                    <span className="flex-1 text-[11px]">Google खाते से जुड़े: <strong>{googleUser.email}</strong> (नाम prefilled!)</span>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    disabled={isGoogleAuthLoading}
+                    onClick={handleGoogleSignIn}
+                    className="w-full py-2.5 bg-slate-950 border border-slate-800 hover:border-slate-700 hover:bg-slate-900/50 text-white rounded-xl text-xs font-bold transition-all active:scale-95 cursor-pointer flex items-center justify-center gap-2.5"
+                  >
+                    {isGoogleAuthLoading ? (
+                      <RefreshCw className="w-4 h-4 animate-spin text-red-500" />
+                    ) : (
+                      <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
+                        <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
+                        <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z" fill="#FBBC05"/>
+                        <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z" fill="#EA4335"/>
+                      </svg>
+                    )}
+                    <span>Google खाते से त्वरित पंजीकरण (Quick Register)</span>
+                  </button>
+                )}
+
+                {/* Basic Fields */}
+                <div className="space-y-3.5">
+                  <div>
+                    <label className="block text-[10px] uppercase font-black text-slate-400 mb-1.5 tracking-wider">पूरा नाम (Full Name) *</label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="e.g. Siddharth Sharma"
+                      value={onboardName}
+                      onChange={(e) => setOnboardName(e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-red-500 transition-colors"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                    <div>
+                      <label className="block text-[10px] uppercase font-black text-slate-400 mb-1.5 tracking-wider">संपर्क नंबर (Contact) *</label>
+                      <input
+                        type="text"
+                        required
+                        placeholder="e.g. +91 98765 43210"
+                        value={onboardContact}
+                        onChange={(e) => setOnboardContact(e.target.value)}
+                        className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-red-500 transition-colors"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] uppercase font-black text-slate-400 mb-1.5 tracking-wider">शहर / स्थान (City, State) *</label>
+                      <input
+                        type="text"
+                        required
+                        placeholder="e.g. Sagar, Madhya Pradesh"
+                        value={onboardLocation}
+                        onChange={(e) => setOnboardLocation(e.target.value)}
+                        className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-red-500 transition-colors"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] uppercase font-black text-slate-400 mb-1.5 tracking-wider">ब्लड ग्रुप (Blood Group - यदि ज्ञात हो)</label>
+                    <select
+                      value={onboardBloodGroup}
+                      onChange={(e) => setOnboardBloodGroup(e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none focus:border-red-500 cursor-pointer transition-colors"
+                    >
+                      {["O+", "O-", "A+", "A-", "B+", "B-", "AB+", "AB-", "पता नहीं (Don't Know)"].map(g => (
+                        <option key={g} value={g} className="bg-slate-900">{g}</option>
+                      ))}
+                    </select>
+                  </div>
                 </div>
-              </div>
 
-              <button
-                type="submit"
-                className="w-full py-3 bg-red-600 hover:bg-red-500 text-white rounded-xl text-xs font-bold transition-all active:scale-95 cursor-pointer shadow-lg shadow-red-900/10 flex items-center justify-center gap-1.5 uppercase tracking-wider"
-              >
-                <span>पंजीकरण पूरा करें (Complete Setup)</span>
-              </button>
-            </form>
+                {/* Multi-select Tags */}
+                <div className="space-y-2">
+                  <label className="block text-[10px] uppercase font-black text-slate-400 tracking-wider">
+                    अपनी भूमिका चुनें (Select Your Roles - Choose Multiple)
+                  </label>
+                  <div className="grid grid-cols-2 gap-2">
+                    {[
+                      "रक्त दाता (Blood Donor)",
+                      "रक्त खोजी (Blood Seeker)",
+                      "स्वयंसेवक (Volunteer)",
+                      "चिकित्सक (Medical Expert)"
+                    ].map(tag => {
+                      const isSelected = onboardTags.includes(tag);
+                      return (
+                        <button
+                          key={tag}
+                          type="button"
+                          onClick={() => toggleOnboardTag(tag)}
+                          className={`p-2.5 text-left rounded-xl border text-[11px] font-bold transition-all active:scale-95 cursor-pointer flex items-center justify-between ${
+                            isSelected
+                              ? "bg-red-600/10 border-red-500 text-red-500"
+                              : "bg-slate-950 border-slate-800 text-slate-400 hover:border-slate-700"
+                          }`}
+                        >
+                          <span>{tag}</span>
+                          {isSelected && <Check className="w-3.5 h-3.5 text-red-500 shrink-0 ml-1" />}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Favorite Services Pinning */}
+                <div className="space-y-2">
+                  <label className="block text-[10px] uppercase font-black text-slate-400 tracking-wider">
+                    पसंदीदा सेवाएँ चुनें (Choose Favorite Services to Pin)
+                  </label>
+                  <div className="grid grid-cols-2 gap-2">
+                    {[
+                      "Blood Search",
+                      "Donor Search",
+                      "Emergency Requests",
+                      "Live Map",
+                      "Live Peer Chat",
+                      "Support / Donation"
+                    ].map(service => {
+                      const isSelected = onboardServices.includes(service);
+                      const labelHindi = 
+                        service === "Blood Search" ? "रक्त खोज (Blood Search)" :
+                        service === "Donor Search" ? "दाता खोज (Donor Search)" :
+                        service === "Emergency Requests" ? "आपातकालीन अनुरोध" :
+                        service === "Live Map" ? "लाइव मानचित्र (Live Map)" :
+                        service === "Live Peer Chat" ? "लाइव चैट (Live Peer Chat)" : "स्वैच्छिक दान (Support)";
+                      return (
+                        <button
+                          key={service}
+                          type="button"
+                          onClick={() => toggleOnboardService(service)}
+                          className={`p-2.5 text-left rounded-xl border text-[11px] font-bold transition-all active:scale-95 cursor-pointer flex items-center justify-between ${
+                            isSelected
+                              ? "bg-red-600/10 border-red-500 text-red-500"
+                              : "bg-slate-950 border-slate-800 text-slate-400 hover:border-slate-700"
+                          }`}
+                        >
+                          <span>{labelHindi}</span>
+                          {isSelected && <Check className="w-3.5 h-3.5 text-red-500 shrink-0 ml-1" />}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* One-time 'Share Location for Network' permission toggle */}
+                <div className="bg-slate-950/80 border border-slate-850 p-3.5 rounded-xl flex items-start gap-3">
+                  <div className="pt-0.5">
+                    <input
+                      type="checkbox"
+                      id="share_loc_toggle"
+                      checked={shareLocationConsent}
+                      onChange={(e) => setShareLocationConsent(e.target.checked)}
+                      className="w-4 h-4 text-red-600 border-slate-800 rounded focus:ring-red-500 focus:ring-opacity-25 accent-red-600 cursor-pointer"
+                    />
+                  </div>
+                  <label htmlFor="share_loc_toggle" className="text-xs leading-normal font-medium text-slate-300 cursor-pointer select-none">
+                    <span className="font-extrabold text-white block text-left">🌐 Share Location for Blood AI Network (स्थान साझा अनुमति)</span>
+                    <span className="text-[10px] text-slate-500 block mt-0.5 text-left leading-normal">
+                      मैं 'ग्लोबल ब्लड AI नेटवर्क मानचित्र' बनाने के लिए अपने स्थान को साझा करने की सहमति देता हूँ। मेरे सटीक स्थान को सर्वथा सुरक्षित रखकर केवल सामान्य नगर/पिन कोड के रूप में क्लस्टर में दिखाया जाएगा।
+                    </span>
+                  </label>
+                </div>
+
+                <button
+                  type="submit"
+                  className="w-full py-3 bg-red-600 hover:bg-red-500 text-white rounded-xl text-xs font-bold transition-all active:scale-95 cursor-pointer shadow-lg shadow-red-900/10 flex items-center justify-center gap-1.5 uppercase tracking-wider"
+                >
+                  <span>पंजीकरण पूरा करें (Complete Setup)</span>
+                </button>
+
+                <div className="text-center pt-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setIsLoginMode(true)}
+                    className="text-xs text-red-400 hover:text-red-300 transition-colors underline font-bold cursor-pointer"
+                  >
+                    पहले से खाता है? यहाँ लॉगिन करें (Have an account? Log In here)
+                  </button>
+                </div>
+              </form>
+            )}
           </motion.div>
         </div>
       )}
@@ -1076,35 +1620,42 @@ export default function App() {
           ? "bg-slate-950/85 border-slate-900/80 text-white" 
           : "bg-white/90 border-slate-200 text-slate-900"
       }`}>
-        <div className="max-w-6xl mx-auto flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+        <div className="max-w-6xl mx-auto flex items-center justify-between gap-3">
           
+          {/* Mobile Menu Toggle */}
+          <button
+            onClick={() => setIsSidebarOpen(true)}
+            className="md:hidden p-1.5 rounded-lg border border-slate-800/80 bg-slate-900/60 text-slate-300 hover:text-white hover:bg-slate-800 transition-all cursor-pointer shadow-md shrink-0"
+            title="Open Menu"
+          >
+            <Menu className="w-4 h-4 text-red-500" />
+          </button>
+
           {/* Logo & Status Indicator */}
-          <div className="flex items-center justify-between lg:justify-start gap-4">
-            <div className="flex items-center space-x-3">
-              <motion.div
-                animate={{ scale: [1, 1.08, 1] }}
-                transition={{ repeat: Infinity, duration: 1.8, ease: "easeInOut" }}
-                onClick={() => setActiveView("home")}
-                className="w-9 h-9 rounded-xl bg-gradient-to-br from-red-600 to-red-800 text-white flex items-center justify-center shadow-lg shadow-red-900/20 cursor-pointer"
-              >
-                <span className="text-xl">🩸</span>
-              </motion.div>
-              <div className="text-left">
-                <h1 className="text-sm font-black tracking-wider uppercase font-mono flex items-center gap-1.5 text-red-500">
-                  <span>{TRANSLATIONS[language].appName}</span>
-                  <span className="text-[9px] bg-red-600/20 text-red-500 border border-red-500/20 px-1.5 py-0.2 rounded font-bold uppercase font-mono">Pro v1.2</span>
-                </h1>
-                <p className="text-[10px] text-slate-400 font-semibold">{TRANSLATIONS[language].tagline}</p>
-              </div>
+          <div className="flex items-center gap-3">
+            <motion.div
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+              onClick={() => setActiveView("home")}
+              className="w-9 h-9 rounded-xl bg-gradient-to-br from-red-600 to-red-800 text-white flex items-center justify-center shadow-lg shadow-red-900/20 cursor-pointer"
+            >
+              <span className="text-xl">🩸</span>
+            </motion.div>
+            <div className="hidden sm:block text-left">
+              <h1 className="text-xs font-black tracking-wider uppercase font-mono flex items-center gap-1.5 text-red-500">
+                <span>{TRANSLATIONS[language].appName}</span>
+                <span className="text-[9px] bg-red-600/20 text-red-500 border border-red-500/20 px-1.5 py-0.2 rounded font-bold uppercase font-mono">Pro v1.2</span>
+              </h1>
+              <p className="text-[9px] text-slate-400 font-semibold">{TRANSLATIONS[language].tagline}</p>
             </div>
 
-            {/* Live Online / Offline Connectivity badge */}
+            {/* Live Online / Offline Connectivity badge (Status Badge) */}
             <button
               onClick={() => {
                 setUserStatus(prev => prev === "Online" ? "Offline" : "Online");
                 showToast(`स्टेटस बदला: ${userStatus === "Online" ? "Offline (ऑफ़लाइन)" : "Online (ऑनलाइन)"}`);
               }}
-              className={`px-2.5 py-1 rounded-full text-[10px] font-mono font-bold border transition-all active:scale-95 flex items-center gap-1 cursor-pointer ${
+              className={`px-2.5 py-1 rounded-full text-[9px] font-mono font-bold border transition-all active:scale-95 flex items-center gap-1 cursor-pointer ${
                 userStatus === "Online" 
                   ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/25 shadow-emerald-500/5 shadow-inner" 
                   : "bg-amber-500/10 text-amber-500 border-amber-500/25"
@@ -1116,51 +1667,52 @@ export default function App() {
             </button>
           </div>
 
-          {/* Core Interactive Toolbar - All 1 Tap Actions */}
-          <div className="flex flex-wrap items-center gap-2 text-xs">
+          {/* Core Essential Actions: Search & Notifications */}
+          <div className="flex items-center gap-2">
             
-            {/* UTC Realtime sync */}
-            <div className={`hidden lg:flex items-center gap-1 px-2.5 py-1.5 rounded-lg border font-mono text-[10px] ${
-              isDarkMode ? "bg-slate-900/80 border-slate-800/80 text-slate-400" : "bg-slate-100 border-slate-200 text-slate-600"
-            }`}>
-              <Clock className="w-3 h-3 text-red-500" />
-              <span>{utcTime || "UTC sync..."}</span>
-            </div>
-
-            {/* Language select */}
-            <div className={`flex items-center gap-1 px-2 py-1 rounded-lg border text-[11px] font-bold ${
-              isDarkMode ? "bg-slate-900 border-slate-800 text-slate-300" : "bg-white border-slate-200 text-slate-700"
-            }`}>
-              <Globe className="w-3.5 h-3.5 text-red-500" />
-              <select
-                value={language}
-                onChange={(e) => {
-                  setLanguage(e.target.value as any);
-                  showToast(`भाषा बदली: ${e.target.value === 'hi' ? 'हिंदी' : e.target.value === 'en' ? 'English' : 'Hinglish'}`);
+            {/* Essential Action 1: Universal Search Collapsible */}
+            <div className="relative flex items-center">
+              {isHeaderSearchOpen && (
+                <motion.input
+                  initial={{ width: 0, opacity: 0 }}
+                  animate={{ width: 180, opacity: 1 }}
+                  exit={{ width: 0, opacity: 0 }}
+                  type="text"
+                  placeholder={language === "hi" ? "पूरे डेटाबेस में खोजें..." : "Search entire system..."}
+                  value={searchQuery}
+                  onChange={(e) => {
+                    setSearchQuery(e.target.value);
+                    if (activeView !== "emergency" && activeView !== "community") {
+                      setActiveView("emergency");
+                    }
+                  }}
+                  className={`mr-2 px-3 py-1.5 rounded-lg text-xs font-semibold outline-none transition-all ${
+                    isDarkMode 
+                      ? "bg-slate-900 border border-slate-800 text-white placeholder-slate-500 focus:border-red-500/50" 
+                      : "bg-slate-100 border border-slate-200 text-slate-900 placeholder-slate-400 focus:border-red-500/50"
+                  }`}
+                  autoFocus
+                />
+              )}
+              <button
+                onClick={() => {
+                  setIsHeaderSearchOpen(!isHeaderSearchOpen);
+                  if (!isHeaderSearchOpen && activeView !== "emergency" && activeView !== "community") {
+                    setActiveView("emergency");
+                  }
                 }}
-                className="bg-transparent border-none outline-none cursor-pointer font-bold font-sans text-xs"
+                className={`p-2 rounded-lg border transition-all active:scale-95 cursor-pointer ${
+                  isHeaderSearchOpen
+                    ? "bg-red-500/10 border-red-500/30 text-red-500"
+                    : isDarkMode ? "bg-slate-900 hover:bg-slate-800 border-slate-800 text-slate-300" : "bg-white hover:bg-slate-100 border-slate-200 text-slate-700"
+                }`}
+                title="Universal Search"
               >
-                <option value="hi" className="bg-slate-950 text-white">हिंदी</option>
-                <option value="en" className="bg-slate-950 text-white font-semibold">English</option>
-                <option value="hinglish" className="bg-slate-950 text-white font-semibold">Hinglish</option>
-              </select>
+                {isHeaderSearchOpen ? <X className="w-4 h-4" /> : <Search className="w-4 h-4" />}
+              </button>
             </div>
 
-            {/* Quick Dark/Light Mode toggle in exactly 1 tap! */}
-            <button
-              onClick={() => {
-                setIsDarkMode(!isDarkMode);
-                showToast(!isDarkMode ? "डार्क मोड सक्रिय! (Dark Mode)" : "लाइट मोड सक्रिय! (Light Mode)");
-              }}
-              className={`p-2 rounded-lg border transition-all active:scale-95 cursor-pointer ${
-                isDarkMode ? "bg-slate-900 hover:bg-slate-800 border-slate-800 text-amber-400" : "bg-white hover:bg-slate-100 border-slate-200 text-indigo-600"
-              }`}
-              title={isDarkMode ? "Light Mode" : "Dark Mode"}
-            >
-              {isDarkMode ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
-            </button>
-
-            {/* Live Alerts Dropdown */}
+            {/* Essential Action 2: Live Notifications (Bell icon) */}
             <div className="relative">
               <button
                 onClick={() => setIsNotificationsOpen(!isNotificationsOpen)}
@@ -1213,59 +1765,14 @@ export default function App() {
               )}
             </div>
 
-            {/* Prescription AI Scanner (Camera / Gallery Simulation) */}
-            <button
-              onClick={() => setIsScannerOpen(true)}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border font-bold transition-all active:scale-95 cursor-pointer ${
-                isDarkMode 
-                  ? "bg-red-600/10 hover:bg-red-600/25 border-red-500/25 text-red-400" 
-                  : "bg-red-50 hover:bg-red-100 border-red-200 text-red-600"
-              }`}
-              title="Scan Doctor Prescription with AI"
-            >
-              <Camera className="w-4 h-4 animate-pulse" />
-              <span className="hidden sm:inline">Scanner</span>
-            </button>
-
-            {/* Personal Verified QR Donor Pass */}
-            <button
-              onClick={() => setIsQrModalOpen(true)}
-              className={`p-2 rounded-lg border transition-all active:scale-95 cursor-pointer ${
-                isDarkMode ? "bg-slate-900 hover:bg-slate-800 border-slate-800 text-slate-300" : "bg-white hover:bg-slate-100 border-slate-200 text-slate-700"
-              }`}
-              title="My Donor Pass QR"
-            >
-              <QrCode className="w-4 h-4" />
-            </button>
-
-            {/* Quick Guide & User manual */}
-            <button
-              onClick={() => setIsHelpOpen(true)}
-              className={`p-2 rounded-lg border transition-all active:scale-95 cursor-pointer ${
-                isDarkMode ? "bg-slate-900 hover:bg-slate-800 border-slate-800 text-sky-400" : "bg-white hover:bg-slate-100 border-slate-200 text-sky-600"
-              }`}
-              title="Help and Guide"
-            >
-              <HelpCircle className="w-4 h-4" />
-            </button>
-
-            {/* Global Settings */}
-            <button
-              onClick={() => setIsSettingsOpen(true)}
-              className={`p-2 rounded-lg border transition-all active:scale-95 cursor-pointer ${
-                isDarkMode ? "bg-slate-900 hover:bg-slate-800 border-slate-800 text-slate-300" : "bg-white hover:bg-slate-100 border-slate-200 text-slate-700"
-              }`}
-              title="Quick Settings"
-            >
-              <Layers className="w-4 h-4" />
-            </button>
-
           </div>
         </div>
       </header>
 
       {/* Main Container */}
-      <main className="flex-1 max-w-6xl w-full mx-auto px-4 py-6 z-10">
+      <main className={`flex-1 w-full mx-auto z-10 transition-all ${
+        activeView === "home" ? "max-w-none px-0 py-0" : "max-w-6xl px-4 py-6"
+      }`}>
         
         {/* Global Search and Filter panel (Visible on Emergency view) */}
         {(activeView === "emergency") && (
@@ -1505,6 +2012,8 @@ export default function App() {
                 onDriverSosTrigger={handleDriverSosTrigger}
                 selectedMapItem={selectedMapItem}
                 onClearSelectedMapItem={() => setSelectedMapItem(null)}
+                registeredUsers={registeredUsers}
+                onFollowUser={handleFollowUser}
               />
             )}
 
@@ -1515,7 +2024,264 @@ export default function App() {
                 banksCount={bloodBanks.length}
                 onResetDb={handleResetDb}
                 onShowToast={showToast}
+                onSignOut={handleGoogleSignOut}
               />
+            )}
+
+            {activeView === "community" && (
+              <CommunityView
+                registeredUsers={registeredUsers}
+                currentUser={
+                  registeredUsers.find(
+                    (u: any) =>
+                      u.name === localStorage.getItem("blood_ai_profile_name") &&
+                      u.contact === localStorage.getItem("blood_ai_profile_phone")
+                  ) || (isRegistered ? {
+                    id: "current_user",
+                    name: localStorage.getItem("blood_ai_profile_name") || "",
+                    bloodGroup: localStorage.getItem("blood_ai_profile_blood") || "",
+                    location: localStorage.getItem("blood_ai_profile_location") || "",
+                    contact: localStorage.getItem("blood_ai_profile_phone") || "",
+                    followersCount: 0,
+                    followingIds: [],
+                    roles: []
+                  } : null)
+                }
+                onFollowUser={handleFollowUser}
+              />
+            )}
+
+            {activeView === "settings" && (
+              <div className="space-y-6 text-left max-w-2xl mx-auto pb-10">
+                {/* Title */}
+                <div className={`border p-5 rounded-2xl space-y-2 ${
+                  isDarkMode ? "bg-slate-900/40 border-slate-850" : "bg-slate-50 border-slate-200"
+                }`}>
+                  <h2 className={`text-sm font-extrabold tracking-wider uppercase flex items-center gap-2 ${
+                    isDarkMode ? "text-slate-200" : "text-slate-800"
+                  }`}>
+                    <Settings className="w-5 h-5 text-red-500 animate-spin" style={{ animationDuration: "12s" }} />
+                    सिस्टम सेटिंग्स (Platform Settings)
+                  </h2>
+                  <p className="text-[11px] text-slate-500 leading-relaxed font-sans">
+                    यहाँ से आप ऐप की भाषा, डार्क मोड/लाइट मोड थीम, अपनी कनेक्टिविटी स्थिति, स्थान और डेटाबेस को प्रबंधित कर सकते हैं।
+                  </p>
+                </div>
+
+                {/* Grid for settings cards */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  
+                  {/* Language Preferences */}
+                  <div className={`border p-5 rounded-2xl space-y-4 ${
+                    isDarkMode ? "bg-slate-900/30 border-slate-850/80" : "bg-slate-50/50 border-slate-200"
+                  }`}>
+                    <div className="flex items-center gap-2.5 border-b border-slate-800/20 pb-2.5">
+                      <Globe className="w-4 h-4 text-red-500" />
+                      <div>
+                        <h3 className={`text-xs font-black uppercase tracking-wider ${isDarkMode ? "text-slate-200" : "text-slate-800"}`}>भाषा का चयन (Select Language)</h3>
+                        <p className="text-[9px] text-slate-500">Choose your preferred language script</p>
+                      </div>
+                    </div>
+                    <div className="space-y-2">
+                      {[
+                        { code: "hi", label: "हिंदी (Hindi)", desc: "पूर्ण हिंदी अनुवाद और अलर्ट" },
+                        { code: "en", label: "English (अंग्रेज़ी)", desc: "Standard English layouts" },
+                        { code: "hinglish", label: "Hinglish (हिंग्लिश)", desc: "Roman Script Hindi conversation" }
+                      ].map(item => (
+                        <label 
+                          key={item.code}
+                          className={`flex items-center justify-between p-3 rounded-xl border cursor-pointer transition-all ${
+                            language === item.code 
+                              ? "bg-red-500/10 border-red-500/30 text-white" 
+                              : isDarkMode 
+                                ? "bg-slate-950/40 border-slate-900 text-slate-400 hover:bg-slate-900/40" 
+                                : "bg-white border-slate-200 text-slate-700 hover:bg-slate-100/50"
+                          }`}
+                        >
+                          <div className="space-y-0.5">
+                            <span className={`text-xs font-bold ${language === item.code ? "text-red-500" : isDarkMode ? "text-slate-300" : "text-slate-800"}`}>{item.label}</span>
+                            <span className="text-[10px] text-slate-500 block">{item.desc}</span>
+                          </div>
+                          <input 
+                            type="radio" 
+                            name="language-preference"
+                            checked={language === item.code}
+                            onChange={() => {
+                              setLanguage(item.code as any);
+                              showToast(`भाषा बदली: ${item.label}`);
+                            }}
+                            className="text-red-500 focus:ring-red-500 cursor-pointer"
+                          />
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Dark Mode & Live Connection Status */}
+                  <div className={`border p-5 rounded-2xl space-y-4 flex flex-col justify-between ${
+                    isDarkMode ? "bg-slate-900/30 border-slate-850/80" : "bg-slate-50/50 border-slate-200"
+                  }`}>
+                    <div className="space-y-4">
+                      <div className="flex items-center gap-2.5 border-b border-slate-800/20 pb-2.5">
+                        {isDarkMode ? <Moon className="w-4 h-4 text-indigo-400" /> : <Sun className="w-4 h-4 text-amber-500" />}
+                        <div>
+                          <h3 className={`text-xs font-black uppercase tracking-wider ${isDarkMode ? "text-slate-200" : "text-slate-800"}`}>थीम और लाइव स्टेटस (Appearance)</h3>
+                          <p className="text-[9px] text-slate-500">Toggle light or dark modes & status</p>
+                        </div>
+                      </div>
+
+                      <div className="space-y-3">
+                        <div className={`flex items-center justify-between p-3 rounded-xl border ${
+                          isDarkMode ? "bg-slate-950/40 border-slate-900" : "bg-white border-slate-200"
+                        }`}>
+                          <div className="space-y-0.5">
+                            <span className={`text-xs font-bold ${isDarkMode ? "text-slate-300" : "text-slate-800"}`}>डार्क मोड थीम (Dark Mode)</span>
+                            <span className="text-[10px] text-slate-500 block">आंखों की सुरक्षा के लिए रात की थीम</span>
+                          </div>
+                          <button
+                            onClick={() => {
+                              setIsDarkMode(!isDarkMode);
+                              showToast(!isDarkMode ? "डार्क मोड सक्रिय!" : "लाइट मोड सक्रिय!");
+                            }}
+                            className={`w-11 h-6 flex items-center rounded-full p-1 transition-all ${isDarkMode ? "bg-red-600" : "bg-slate-300"}`}
+                          >
+                            <div className={`bg-white w-4 h-4 rounded-full shadow-md transform transition-all ${isDarkMode ? "translate-x-5" : "translate-x-0"}`}></div>
+                          </button>
+                        </div>
+
+                        <div className={`flex items-center justify-between p-3 rounded-xl border ${
+                          isDarkMode ? "bg-slate-950/40 border-slate-900" : "bg-white border-slate-200"
+                        }`}>
+                          <div className="space-y-0.5">
+                            <span className={`text-xs font-bold ${isDarkMode ? "text-slate-300" : "text-slate-800"}`}>कनेक्टिविटी स्थिति (Live Status)</span>
+                            <span className="text-[10px] text-slate-500 block">रक्तदाताओं को आपके लाइव होने की सूचना दें</span>
+                          </div>
+                          <button
+                            onClick={() => {
+                              setUserStatus(prev => prev === "Online" ? "Offline" : "Online");
+                              showToast(`स्थिति बदली: ${userStatus === "Online" ? "Offline" : "Online"}`);
+                            }}
+                            className={`px-3 py-1 rounded-full text-[10px] font-bold border transition-all flex items-center gap-1 cursor-pointer ${
+                              userStatus === "Online" 
+                                ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20" 
+                                : "bg-amber-500/10 text-amber-500 border-amber-500/20"
+                            }`}
+                          >
+                            <span className={`w-1.5 h-1.5 rounded-full ${userStatus === "Online" ? "bg-emerald-500 animate-pulse" : "bg-amber-500"}`}></span>
+                            <span>{userStatus === "Online" ? "Online" : "Offline"}</span>
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Proximity Distance Controls */}
+                    <div className="space-y-2 pt-4 border-t border-slate-800/10">
+                      <div className="flex justify-between items-center">
+                        <span className="text-[11px] font-bold text-slate-500">प्रोक्सीमिटी अलर्ट दायरा (Alert Radius):</span>
+                        <span className="text-xs font-extrabold text-red-500 font-mono">20 Kms</span>
+                      </div>
+                      <div className="h-1.5 bg-slate-950 border border-slate-900 rounded-full overflow-hidden relative">
+                        <div className="absolute top-0 left-0 bottom-0 bg-red-600 w-2/3"></div>
+                      </div>
+                      <p className="text-[9px] text-slate-500 leading-normal">रक्तदान आपातकाल के दौरान 20 किलोमीटर के दायरे में सूचना प्राप्त होगी</p>
+                    </div>
+                  </div>
+
+                  {/* Location Preferences */}
+                  <div className={`border p-5 rounded-2xl space-y-4 ${
+                    isDarkMode ? "bg-slate-900/30 border-slate-850/80" : "bg-slate-50/50 border-slate-200"
+                  }`}>
+                    <div className="flex items-center gap-2.5 border-b border-slate-800/20 pb-2.5">
+                      <MapPin className="w-4 h-4 text-red-500" />
+                      <div>
+                        <h3 className={`text-xs font-black uppercase tracking-wider ${isDarkMode ? "text-slate-200" : "text-slate-800"}`}>स्थान प्राथमिकता (Location Settings)</h3>
+                        <p className="text-[9px] text-slate-500">Auto-detection and geo preferences</p>
+                      </div>
+                    </div>
+
+                    <div className="space-y-3">
+                      <div className={`p-4 rounded-xl space-y-2 border ${
+                        isDarkMode ? "bg-slate-950/40 border-slate-900" : "bg-white border-slate-200"
+                      }`}>
+                        <div className="flex justify-between items-center text-xs">
+                          <span className="text-slate-500">वर्तमान सक्रिय स्थान:</span>
+                          <span className={`font-bold border px-2 py-0.5 rounded text-[11px] ${
+                            isDarkMode ? "text-white bg-slate-900 border-slate-850" : "text-slate-800 bg-slate-100 border-slate-300"
+                          }`}>{customLocationName}</span>
+                        </div>
+                        <button
+                          onClick={detectMyLocation}
+                          disabled={isDetectingLocation}
+                          className="w-full flex items-center justify-center gap-1.5 bg-red-600 hover:bg-red-700 text-white py-2 rounded-lg text-xs font-bold transition-all disabled:opacity-50 cursor-pointer"
+                        >
+                          <Activity className={`w-3.5 h-3.5 text-white ${isDetectingLocation ? "animate-spin" : ""}`} />
+                          <span>{isDetectingLocation ? "स्थान खोजा जा रहा है..." : "जीपीएस द्वारा स्थान अपडेट करें"}</span>
+                        </button>
+                      </div>
+
+                      <div className={`flex items-center justify-between p-3 rounded-xl border ${
+                        isDarkMode ? "bg-slate-950/40 border-slate-900" : "bg-white border-slate-200"
+                      }`}>
+                        <div className="space-y-0.5">
+                          <span className={`text-xs font-bold ${isDarkMode ? "text-slate-300" : "text-slate-800"}`}>डोनर खोज त्रिज्या सक्रिय करें</span>
+                          <span className="text-[10px] text-slate-500 block">केवल अपने शहर के डेटा को फ़िल्टर करें</span>
+                        </div>
+                        <button
+                          onClick={() => setIsProximityActive(!isProximityActive)}
+                          className={`w-11 h-6 flex items-center rounded-full p-1 transition-all ${isProximityActive ? "bg-red-600" : "bg-slate-300"}`}
+                        >
+                          <div className={`bg-white w-4 h-4 rounded-full shadow-md transform transition-all ${isProximityActive ? "translate-x-5" : "translate-x-0"}`}></div>
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* System Reset & Database */}
+                  <div className={`border p-5 rounded-2xl space-y-4 flex flex-col justify-between ${
+                    isDarkMode ? "bg-slate-900/30 border-slate-850/80" : "bg-slate-50/50 border-slate-200"
+                  }`}>
+                    <div className="space-y-3">
+                      <div className="flex items-center gap-2.5 border-b border-slate-800/20 pb-2.5">
+                        <Activity className="w-4 h-4 text-red-500" />
+                        <div>
+                          <h3 className={`text-xs font-black uppercase tracking-wider ${isDarkMode ? "text-slate-200" : "text-slate-800"}`}>सिस्टम एवं डायग्नोस्टिक्स (Diagnostics)</h3>
+                          <p className="text-[9px] text-slate-500">Database & system health status</p>
+                        </div>
+                      </div>
+
+                      <div className="space-y-1 text-[11px] font-sans text-slate-500">
+                        <div className={`flex justify-between py-1 border-b ${isDarkMode ? "border-slate-900" : "border-slate-200"}`}>
+                          <span>सक्रिय डेटाबेस प्रकार:</span>
+                          <span className="text-emerald-500 font-bold">रीयल-टाइम (Firebase)</span>
+                        </div>
+                        <div className={`flex justify-between py-1 border-b ${isDarkMode ? "border-slate-900" : "border-slate-200"}`}>
+                          <span>पंजीकृत डोनर्स संख्या:</span>
+                          <span className={`${isDarkMode ? "text-white" : "text-slate-800"} font-bold font-mono`}>{donors.length} लोग</span>
+                        </div>
+                        <div className={`flex justify-between py-1 border-b ${isDarkMode ? "border-slate-900" : "border-slate-200"}`}>
+                          <span>सक्रिय आपातकालीन मामले:</span>
+                          <span className="text-red-500 font-bold font-mono">{emergencyRequests.length} मामले</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <button
+                      onClick={() => {
+                        if (confirm("क्या आप डोनर और डेटाबेस रिकॉर्ड रीसेट करना चाहते हैं?")) {
+                          handleResetDb();
+                        }
+                      }}
+                      className="w-full bg-red-600/10 hover:bg-red-600/20 border border-red-500/20 text-red-500 py-2 rounded-lg text-xs font-bold transition-all mt-4 cursor-pointer"
+                    >
+                      सभी रिकॉर्ड्स रीसेट करें (Reset System Database)
+                    </button>
+                  </div>
+
+                </div>
+
+                {/* About & Trust Center */}
+                <AboutTrustCenter isDarkMode={isDarkMode} onShowToast={showToast} />
+              </div>
             )}
           </motion.div>
         </AnimatePresence>
@@ -1523,7 +2289,7 @@ export default function App() {
 
       {/* Floating Action SOS Accident Button (when not in map driver mode) */}
       {!isDriverModeActive && (
-        <div className="fixed bottom-24 right-6 z-50">
+        <div className="fixed bottom-6 right-6 z-50">
           <motion.button
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
@@ -1535,51 +2301,6 @@ export default function App() {
           </motion.button>
         </div>
       )}
-
-      {/* Universal Sticky Bottom Navigation Bar */}
-      <nav className="fixed bottom-0 left-0 right-0 bg-slate-950/85 backdrop-blur-md border-t border-slate-900/80 py-2.5 z-40 shadow-2xl max-w-lg mx-auto sm:rounded-t-2xl">
-        <div className="flex items-center justify-around">
-          <button
-            onClick={() => setActiveView("home")}
-            className={`flex flex-col items-center space-y-1 transition-all cursor-pointer ${
-              activeView === "home" ? "text-red-500 scale-105 font-bold" : "text-slate-400 hover:text-slate-200"
-            }`}
-          >
-            <Sparkles className="w-5 h-5" />
-            <span className="text-[10px] font-bold tracking-wider">AI Chat</span>
-          </button>
-
-          <button
-            onClick={() => setActiveView("emergency")}
-            className={`flex flex-col items-center space-y-1 transition-all cursor-pointer ${
-              activeView === "emergency" ? "text-red-500 scale-105 font-bold" : "text-slate-400 hover:text-slate-200"
-            }`}
-          >
-            <AlertTriangle className="w-5 h-5" />
-            <span className="text-[10px] font-bold tracking-wider">Emergency</span>
-          </button>
-
-          <button
-            onClick={() => setActiveView("map")}
-            className={`flex flex-col items-center space-y-1 transition-all cursor-pointer ${
-              activeView === "map" ? "text-red-500 scale-105 font-bold" : "text-slate-400 hover:text-slate-200"
-            }`}
-          >
-            <MapPin className="w-5 h-5" />
-            <span className="text-[10px] font-bold tracking-wider">Map</span>
-          </button>
-
-          <button
-            onClick={() => setActiveView("profile")}
-            className={`flex flex-col items-center space-y-1 transition-all cursor-pointer ${
-              activeView === "profile" ? "text-red-500 scale-105 font-bold" : "text-slate-400 hover:text-slate-200"
-            }`}
-          >
-            <User className="w-5 h-5" />
-            <span className="text-[10px] font-bold tracking-wider">Profile</span>
-          </button>
-        </div>
-      </nav>
 
       {/* MODAL 1: Registration Modal */}
       {isRegisterModalOpen && (
@@ -1992,6 +2713,7 @@ export default function App() {
         </div>
       )}
 
+      </div>
     </div>
   );
 }

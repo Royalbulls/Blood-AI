@@ -67,3 +67,27 @@ export interface CommunityPost {
   reportsCount?: number;
 }
 
+export interface RegisteredUser {
+  id: string;
+  name: string;
+  bloodGroup: string;
+  location: string;
+  contact: string;
+  roles: string[];
+  followersCount: number;
+  followingIds: string[];
+  registeredAt: string;
+  isPublic: boolean;
+  latitude: number;
+  longitude: number;
+  hasSharedLocation: boolean;
+  country: string;
+  state: string;
+  district: string;
+  pinCode: string;
+  services?: string[];
+  googleId?: string;
+  email?: string;
+  photoURL?: string;
+}
+
