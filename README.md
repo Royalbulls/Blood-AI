@@ -13,7 +13,7 @@ An intelligent AI-powered platform that connects blood donors, recipients, hospi
 ## 🚀 Live Links
 
 🌐 **Live App**
-https://blood.rbaadvisor.com
+https://blood-ai.ai.studio
 
 🤖 **Google AI Studio**
 https://ai.studio/apps/352f15a0-806b-4819-89d8-4ae1c1cbfe33
